@@ -628,10 +628,10 @@ function AppForgeEditor() {
         </div>
 
         <Dialog open={showSettings} onOpenChange={setShowSettings}>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[425px] bg-slate-900 border-slate-700 text-slate-100">
             <DialogHeader>
               <DialogTitle>Forge AI Settings</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="text-slate-400">
                 Configure your preferred AI provider and API keys.
               </DialogDescription>
             </DialogHeader>
@@ -642,10 +642,10 @@ function AppForgeEditor() {
                   value={aiSettings.provider} 
                   onValueChange={(v: AIProvider) => setAiSettings({...aiSettings, provider: v})}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="bg-slate-800 border-slate-700">
                     <SelectValue placeholder="Select provider" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-slate-800 border-slate-700 text-slate-100">
                     <SelectItem value="gemini">Google Gemini</SelectItem>
                     <SelectItem value="groq">Groq (Llama 3)</SelectItem>
                     <SelectItem value="siliconflow">SiliconFlow (Qwen/DeepSeek)</SelectItem>
@@ -670,6 +670,7 @@ function AppForgeEditor() {
                   placeholder={`Enter ${aiSettings.provider} API key...`}
                   value={aiSettings.apiKey}
                   onChange={(e) => setAiSettings({...aiSettings, apiKey: e.target.value})}
+                  className="bg-slate-800 border-slate-700 text-slate-100 focus-visible:ring-primary/50"
                 />
               </div>
             </div>

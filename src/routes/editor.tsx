@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
+import { get, set } from "idb-keyval";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
@@ -19,7 +20,8 @@ import {
   Eye,
   Key,
   Check,
-  X
+  X,
+  Edit2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -69,12 +71,43 @@ function AppForgeEditor() {
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
   const [apiKey, setApiKey] = React.useState<string>("");
   const [showSettings, setShowSettings] = React.useState(false);
+  const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
 
-  // Load API Key from localStorage
+  // Load API Key and Files from storage
   React.useEffect(() => {
-    const savedKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
-    if (savedKey) setApiKey(savedKey);
+    const init = async () => {
+      // API Key
+      const savedKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
+      if (savedKey) setApiKey(savedKey);
+
+      // Files from IndexedDB
+      try {
+        const storedFiles = await get<FileSystemItem[]>("APPFORGE_FILES");
+        if (storedFiles && storedFiles.length > 0) {
+          setFiles(storedFiles);
+          // Auto-select first file if current active is not in stored files
+          if (!storedFiles.find(f => f.id === activeFileId)) {
+            const firstFile = storedFiles.find(f => f.type === 'file');
+            if (firstFile) setActiveFileId(firstFile.id);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load files from IndexedDB", err);
+      } finally {
+        setIsFileSystemLoaded(true);
+      }
+    };
+    init();
   }, []);
+
+  // Save files to IndexedDB on change
+  React.useEffect(() => {
+    if (isFileSystemLoaded) {
+      set("APPFORGE_FILES", files).catch(err => {
+        console.error("Failed to save files to IndexedDB", err);
+      });
+    }
+  }, [files, isFileSystemLoaded]);
 
   const saveApiKey = (key: string) => {
     localStorage.setItem("APPFORGE_GEMINI_KEY", key);
@@ -111,6 +144,12 @@ function AppForgeEditor() {
       setFiles(files.filter(f => f.id !== id && f.parentId !== id));
       if (activeFileId === id) setActiveFileId('');
     }
+  };
+
+  const renameItem = (id: string, oldName: string) => {
+    const newName = window.prompt("Enter new name:", oldName);
+    if (!newName || newName === oldName) return;
+    setFiles(files.map(f => f.id === id ? { ...f, name: newName } : f));
   };
 
   const handleEditorChange = (value: string | undefined) => {
@@ -216,12 +255,20 @@ function AppForgeEditor() {
               <FileCode className="h-4 w-4 text-primary/70" />
             )}
             <span className="flex-1 truncate">{item.name}</span>
-            <button 
-              onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:text-destructive"
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+              <button 
+                onClick={(e) => { e.stopPropagation(); renameItem(item.id, item.name); }}
+                className="p-1 hover:text-primary"
+              >
+                <Edit2 className="h-3 w-3" />
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
+                className="p-1 hover:text-destructive"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
           </div>
           {item.type === 'folder' && expandedFolders.has(item.id) && renderTree(item.id, level + 1)}
         </div>

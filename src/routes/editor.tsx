@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import Editor from "@monaco-editor/react";
+import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
   FolderPlus, 
@@ -14,13 +14,27 @@ import {
   Send,
   Loader2,
   Terminal,
-  Settings
+  Settings,
+  Split,
+  Eye,
+  Key
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
+import { analyzeAndRefactorCode } from "@/lib/gemini";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/editor")({
   component: AppForgeEditor,
@@ -48,6 +62,23 @@ function AppForgeEditor() {
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [chatMessages, setChatMessages] = React.useState<{role: 'user' | 'ai', content: string}[]>([]);
   const [chatInput, setChatInput] = React.useState("");
+  const [viewMode, setViewMode] = React.useState<'editor' | 'diff'>('editor');
+  const [originalCode, setOriginalCode] = React.useState<string>("");
+  const [apiKey, setApiKey] = React.useState<string>("");
+  const [showSettings, setShowSettings] = React.useState(false);
+
+  // Load API Key from localStorage
+  React.useEffect(() => {
+    const savedKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
+    if (savedKey) setApiKey(savedKey);
+  }, []);
+
+  const saveApiKey = (key: string) => {
+    localStorage.setItem("APPFORGE_GEMINI_KEY", key);
+    setApiKey(key);
+    setShowSettings(false);
+    toast.success("API Key saved");
+  };
 
   const activeFile = files.find(f => f.id === activeFileId);
 
@@ -107,15 +138,46 @@ function AppForgeEditor() {
     }
   };
 
-  const sendChatMessage = (e: React.FormEvent) => {
+  const sendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
-    setChatMessages(prev => [...prev, { role: 'user', content: chatInput }]);
+    
+    const userMessage = chatInput;
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput("");
-    // Simple mock response
-    setTimeout(() => {
-      setChatMessages(prev => [...prev, { role: 'ai', content: "I'm looking at your code. How can I help with this specific part?" }]);
-    }, 1000);
+
+    if (!activeFile || activeFile.type !== 'file') {
+      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a file first so I can help you refactor it." }]);
+      return;
+    }
+
+    if (!apiKey) {
+      setChatMessages(prev => [...prev, { role: 'ai', content: "Please configure your Gemini API Key in settings first." }]);
+      setShowSettings(true);
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setChatMessages(prev => [...prev, { role: 'ai', content: "Refactoring code based on your request..." }]);
+    
+    try {
+      const currentCode = activeFile.content || "";
+      setOriginalCode(currentCode);
+      
+      const refactoredCode = await analyzeAndRefactorCode(apiKey, currentCode, userMessage);
+      
+      // Update the file content
+      setFiles(files.map(f => f.id === activeFileId ? { ...f, content: refactoredCode } : f));
+      
+      setChatMessages(prev => [...prev, { role: 'ai', content: "I've refactored the code for you. You can see the changes in the editor or toggle the Diff view." }]);
+      setViewMode('diff');
+      toast.success("Code refactored successfully");
+    } catch (err: any) {
+      setChatMessages(prev => [...prev, { role: 'ai', content: `Error: ${err.message}` }]);
+      toast.error("Refactoring failed");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const renderTree = (parentId: string | null, level = 0) => {
@@ -179,6 +241,15 @@ function AppForgeEditor() {
             {activeFile ? activeFile.name : 'No file selected'}
           </div>
           <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setViewMode(viewMode === 'editor' ? 'diff' : 'editor')}
+              className="h-8 px-3"
+            >
+              {viewMode === 'editor' ? <Split className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+              {viewMode === 'editor' ? 'Diff View' : 'Editor View'}
+            </Button>
             <Button 
               size="sm" 
               variant="default"
@@ -189,7 +260,7 @@ function AppForgeEditor() {
               {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
               Analyze
             </Button>
-            <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setShowSettings(true)}>
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -197,28 +268,78 @@ function AppForgeEditor() {
 
         <div className="flex-1 relative bg-[#1e1e1e]">
           {activeFile ? (
-            <Editor
-              height="100%"
-              defaultLanguage="typescript"
-              theme="vs-dark"
-              value={activeFile.content || ""}
-              onChange={handleEditorChange}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 14,
-                fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
-                padding: { top: 20 },
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-              }}
-            />
+            viewMode === 'editor' ? (
+              <Editor
+                height="100%"
+                defaultLanguage="typescript"
+                theme="vs-dark"
+                value={activeFile.content || ""}
+                onChange={handleEditorChange}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
+                  padding: { top: 20 },
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                }}
+              />
+            ) : (
+              <DiffEditor
+                height="100%"
+                original={originalCode || activeFile.content || ""}
+                modified={activeFile.content || ""}
+                language="typescript"
+                theme="vs-dark"
+                options={{
+                  renderSideBySide: true,
+                  fontSize: 14,
+                  fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
+                  automaticLayout: true,
+                  minimap: { enabled: false },
+                }}
+              />
+            )
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground italic">
               Select a file to start forging
             </div>
           )}
         </div>
+
+      {/* Settings Dialog */}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Forge Settings</DialogTitle>
+            <DialogDescription>
+              Configure your AI models and API keys. These are stored locally in your browser.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="api-key" className="flex items-center gap-2">
+                <Key className="h-4 w-4" />
+                Google Gemini API Key
+              </Label>
+              <Input
+                id="api-key"
+                type="password"
+                placeholder="Enter your API key..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Get one at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline">AI Studio</a>
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => saveApiKey(apiKey)}>Save Configuration</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </main>
 
       {/* AI Chat Sidebar */}

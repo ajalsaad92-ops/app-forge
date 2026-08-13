@@ -315,7 +315,7 @@ function AppForgeEditor() {
       const actionResult = await getCodeAction(apiKey, currentCode, userMessage);
       
       setPendingCode(actionResult.modifiedCode);
-      setOriginalCode(currentCode);
+      setOriginalCode(currentCode); // Diff against the current version from state (synced with IDB)
       
       setChatMessages(prev => [...prev, { 
         role: 'ai', 

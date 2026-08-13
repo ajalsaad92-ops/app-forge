@@ -9,7 +9,9 @@ import {
   Cpu, 
   Package, 
   ShieldCheck,
-  Zap
+  Zap,
+  Play,
+  RotateCcw
 } from "lucide-react";
 import {
   Dialog,
@@ -35,6 +37,7 @@ interface SetupStepProps {
 
 const SetupStep = ({ title, description, command, link, isCompleted, onToggle }: SetupStepProps) => {
   const [copied, setCopied] = React.useState(false);
+  const [isVerifying, setIsVerifying] = React.useState(false);
 
   const copyCommand = () => {
     if (command) {
@@ -44,6 +47,28 @@ const SetupStep = ({ title, description, command, link, isCompleted, onToggle }:
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  const handleVerify = async () => {
+    setIsVerifying(true);
+    // Ping local backend to verify tool existence
+    try {
+      const toolName = title.split(':')[1]?.trim().split(' ')[0].toLowerCase();
+      const response = await fetch(`http://localhost:3000/api/verify-tool?tool=${toolName}`);
+      const data = await response.json();
+      
+      if (data.exists) {
+        if (!isCompleted) onToggle();
+        toast.success(`${title} verified successfully!`);
+      } else {
+        toast.error(`${title} not found in PATH.`);
+      }
+    } catch (err) {
+      toast.error("Local server must be running to auto-verify tools.");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
 
   return (
     <div className={`p-4 rounded-lg border transition-all ${isCompleted ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-800/50 border-slate-700'}`}>
@@ -85,14 +110,27 @@ const SetupStep = ({ title, description, command, link, isCompleted, onToggle }:
           )}
         </div>
         
-        <Button 
-          variant={isCompleted ? "default" : "outline"} 
-          size="sm" 
-          onClick={onToggle}
-          className={isCompleted ? "bg-emerald-600 hover:bg-emerald-700" : ""}
-        >
-          {isCompleted ? "Completed" : "Mark Done"}
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button 
+            variant={isCompleted ? "default" : "outline"} 
+            size="sm" 
+            onClick={onToggle}
+            className={isCompleted ? "bg-emerald-600 hover:bg-emerald-700 w-full" : "w-full"}
+          >
+            {isCompleted ? "Completed" : "Mark Done"}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleVerify}
+            disabled={isVerifying}
+            className="text-[10px] h-7 gap-1"
+          >
+            {isVerifying ? <RotateCcw className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            Auto-Verify
+          </Button>
+        </div>
+
       </div>
     </div>
   );
@@ -210,7 +248,26 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
           </div>
         </ScrollArea>
 
-        <DialogFooter className="border-t border-slate-800 pt-4 gap-2">
+        <DialogFooter className="border-t border-slate-800 pt-4 gap-2 flex-col sm:flex-row">
+          <div className="flex-1 flex gap-2">
+            <Button 
+              variant="outline" 
+              className="text-xs h-8 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
+              onClick={async () => {
+                try {
+                  const res = await fetch('http://localhost:3000/api/install-tools', { method: 'POST' });
+                  if (res.ok) toast.success("Attempting auto-install via Winget...");
+                  else toast.error("Auto-install failed. Please install manually.");
+                } catch (e) {
+                  toast.error("Local server offline.");
+                }
+              }}
+            >
+              <Zap className="h-3 w-3 mr-1" />
+              Try Auto-Install
+            </Button>
+          </div>
+
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-slate-700 hover:bg-slate-800">
             Close
           </Button>

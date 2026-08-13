@@ -26,6 +26,14 @@ export async function callGemini(apiKey: string, prompt: string) {
           category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
           threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         },
+        {
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        },
       ],
     });
 
@@ -85,13 +93,22 @@ export async function getCodeAction(apiKey: string, code: string, instruction: s
   try {
     // Clean potential markdown and parse
     const cleanJson = result.replace(/^```json\n/i, "").replace(/^```\n/i, "").replace(/\n```$/g, "").trim();
+    
+    // Check if it's empty or doesn't look like JSON
+    if (!cleanJson || (!cleanJson.startsWith('{') && !cleanJson.startsWith('['))) {
+      throw new Error("AI returned non-JSON content");
+    }
+
     return JSON.parse(cleanJson);
   } catch (e) {
     console.warn("Gemini didn't return valid JSON, attempting to extract code manually", e);
     // Fallback if LLM doesn't return valid JSON
+    // We try to find something that looks like code if JSON parsing fails
+    const modifiedCode = result.replace(/^```[a-z]*\n/i, "").replace(/\n```$/g, "").trim();
+    
     return {
-      explanation: "Performed the requested changes.",
-      modifiedCode: result.replace(/^```[a-z]*\n/i, "").replace(/\n```$/g, "").trim()
+      explanation: "Performed the requested changes (recovered from parsing error).",
+      modifiedCode: modifiedCode || code // return original code if everything fails
     };
   }
 }

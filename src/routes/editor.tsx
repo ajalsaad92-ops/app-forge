@@ -310,18 +310,25 @@ function AppForgeEditor() {
     }
   };
 
-  const applyChanges = () => {
+  const applyChanges = async () => {
     if (pendingCode === null || !activeFileId) return;
     
     const updatedFiles = files.map(f => f.id === activeFileId ? { ...f, content: pendingCode } : f);
     setFiles(updatedFiles);
     
-    // Explicit sync to IndexedDB
-    set(STORAGE_KEY, updatedFiles);
-
-    setPendingCode(null);
-    setViewMode('editor');
-    toast.success("Changes applied and persisted.");
+    // Explicit sync to IndexedDB immediately
+    try {
+      await set(STORAGE_KEY, updatedFiles);
+      setPendingCode(null);
+      setViewMode('editor');
+      toast.success("Changes applied and persisted.");
+    } catch (err) {
+      console.error("Persistence failed", err);
+      toast.error("Changes applied but failed to persist to disk.");
+      // Still update UI
+      setPendingCode(null);
+      setViewMode('editor');
+    }
   };
 
   const discardChanges = () => {

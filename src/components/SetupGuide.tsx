@@ -53,8 +53,8 @@ const SetupStep = ({ title, description, command, link, isCompleted, onToggle }:
     // Ping local backend to verify tool existence
     try {
       const parts = title.split(':');
-      const secondPart = parts[1];
-      const toolName = secondPart ? secondPart.trim().split(' ')[0].toLowerCase() : title.toLowerCase();
+      const toolName = (parts[1] || title).trim().split(' ')[0].toLowerCase();
+
 
 
       const response = await fetch(`http://localhost:3000/api/verify-tool?tool=${toolName}`);

@@ -1,52 +1,36 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 /**
- * Utility for Gemini API interaction
+ * Utility for Gemini API interaction using the official SDK
  */
 
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
-
-export async function callGemini(apiKey: string, prompt: string) {
+const getGenAI = (apiKey: string) => {
   if (!apiKey) {
     throw new Error("API Key is missing. Please set it in settings.");
   }
+  return new GoogleGenerativeAI(apiKey);
+};
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            {
-              text: prompt,
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 8192,
-      },
-    }),
-  });
+export async function callGemini(apiKey: string, prompt: string) {
+  try {
+    const genAI = getGenAI(apiKey);
+    // Use gemini-1.5-flash as requested
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error?.message || "Failed to communicate with Gemini API");
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    
+    if (!text) {
+      throw new Error("Empty response from AI");
+    }
+
+    return text;
+  } catch (error: any) {
+    console.error("Gemini API Error:", error);
+    const message = error.message || "Failed to communicate with Gemini API";
+    throw new Error(message);
   }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  
-  if (!text) {
-    throw new Error("Empty response from AI");
-  }
-
-  return text;
 }
 
 export async function analyzeAndRefactorCode(apiKey: string, code: string, instruction: string) {
@@ -91,6 +75,7 @@ export async function getCodeAction(apiKey: string, code: string, instruction: s
     const cleanJson = result.replace(/^```json\n/i, "").replace(/^```\n/i, "").replace(/\n```$/g, "").trim();
     return JSON.parse(cleanJson);
   } catch (e) {
+    console.warn("Gemini didn't return valid JSON, attempting to extract code manually", e);
     // Fallback if LLM doesn't return valid JSON
     return {
       explanation: "Performed the requested changes.",
@@ -98,4 +83,3 @@ export async function getCodeAction(apiKey: string, code: string, instruction: s
     };
   }
 }
-

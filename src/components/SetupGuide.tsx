@@ -3,12 +3,10 @@ import {
   Terminal, 
   Settings, 
   CheckCircle2, 
-  AlertCircle, 
   ExternalLink, 
   Copy, 
   Check, 
   Cpu, 
-  Java, 
   Package, 
   ShieldCheck,
   Zap
@@ -121,8 +119,15 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
     if (open) {
       checkHealth();
       const interval = setInterval(checkHealth, 5000);
+      
       const saved = localStorage.getItem('APPFORGE_SETUP_PROGRESS');
-      if (saved) setCompletedSteps(JSON.parse(saved));
+      if (saved) {
+        try {
+          setCompletedSteps(JSON.parse(saved));
+        } catch (e) {
+          console.error("Failed to parse setup progress", e);
+        }
+      }
       return () => clearInterval(interval);
     }
   }, [open, checkHealth]);
@@ -161,7 +166,6 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
               </h3>
               
               <SetupStep 
-                id="java"
                 title="Step 1: Install Java (JDK 17+)"
                 description="Java Development Kit is required for Apktool and Apksigner to run. Version 17 is recommended for maximum compatibility."
                 link="https://www.oracle.com/java/technologies/downloads/#java17"
@@ -170,7 +174,6 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
               />
 
               <SetupStep 
-                id="apktool"
                 title="Step 2: Install Apktool"
                 description="The core engine for decompiling APKs to Smali and rebuilding them. Ensure it's in your system PATH."
                 command="apktool --version"
@@ -179,7 +182,6 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
               />
 
               <SetupStep 
-                id="buildtools"
                 title="Step 3: Install Android Build Tools"
                 description="Required for 'apksigner' to sign your rebuilt APKs so they can be installed on Android devices. Use winget for fast installation."
                 command="winget install Google.AndroidSDK.BuildTools"

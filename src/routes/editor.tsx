@@ -311,7 +311,7 @@ function AppForgeEditor() {
     setChatMessages(prev => [...prev, { role: 'ai', content: "Processing your request..." }]);
     
     try {
-      const currentCode = activeFile.content || "";
+      const currentCode = files.find(f => f.id === activeFileId)?.content || "";
       const actionResult = await getCodeAction(apiKey, currentCode, userMessage);
       
       setPendingCode(actionResult.modifiedCode);

@@ -389,9 +389,28 @@ function AppForgeEditor() {
   };
 
   const renderTree = (parentId: string | null, level = 0) => {
-    return files
-      .filter(f => f.parentId === parentId)
-      .map(item => (
+    const filteredFiles = files.filter(f => {
+      if (f.parentId !== parentId) return false;
+      if (!searchQuery) return true;
+      
+      // If searching, show if name matches OR if it has children that match
+      const nameMatches = f.name.toLowerCase().includes(searchQuery.toLowerCase());
+      if (nameMatches) return true;
+      
+      if (f.type === 'folder') {
+        const hasMatchingChild = (fid: string): boolean => {
+          return files.some(child => 
+            child.parentId === fid && 
+            (child.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+             (child.type === 'folder' && hasMatchingChild(child.id)))
+          );
+        };
+        return hasMatchingChild(f.id);
+      }
+      return false;
+    });
+
+    return filteredFiles.map(item => (
         <div key={item.id} className="select-none">
           <div 
             className={`flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-accent/50 group ${activeFileId === item.id ? 'bg-accent text-accent-foreground' : ''}`}

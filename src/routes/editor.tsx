@@ -1,528 +1,269 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import Editor from "@monaco-editor/react";
 import { 
-  FileCode, FileJson, Folder, Upload, Hammer, Package, 
-  File as FileIcon, Loader2, ChevronRight, ChevronDown, 
-  Search, Save, X, Trash2, Edit2, Download,
-  Shield, Code, Settings, Image as ImageIcon, Cpu, Layers
+  FileCode, 
+  FolderPlus, 
+  FilePlus, 
+  Trash2, 
+  Play, 
+  MessageSquare, 
+  ChevronRight, 
+  ChevronDown,
+  Code2,
+  Send,
+  Loader2,
+  Terminal,
+  Settings
 } from "lucide-react";
-import { apkProcessor, type APKCategory } from "@/lib/apk-processor";
-import { toast } from "sonner";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { analyzeCode } from "@/lib/analysis.functions";
 
 export const Route = createFileRoute("/editor")({
-  component: APKEditor,
+  component: AppForgeEditor,
 });
 
-interface FileNode {
+interface FileSystemItem {
+  id: string;
   name: string;
-  path: string;
-  type: 'file' | 'directory';
-  category?: APKCategory | undefined;
-  children?: FileNode[] | undefined;
+  type: 'file' | 'folder';
+  content?: string;
+  parentId: string | null;
 }
 
-function APKEditor() {
-  const [isUploading, setIsUploading] = React.useState(false);
-  const [isBuilding, setIsBuilding] = React.useState(false);
-  const [currentFilePath, setCurrentFilePath] = React.useState<string | null>(null);
-  const [fileContent, setFileContent] = React.useState("");
-  const [fileTree, setFileTree] = React.useState<FileNode[]>([]);
-  const [logs, setLogs] = React.useState<string[]>(["[INFO] Ready to upload APK"]);
-  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [openFiles, setOpenFiles] = React.useState<string[]>([]);
-  const [activeCategory, setActiveCategory] = React.useState<APKCategory | 'all'>('all');
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+const DEFAULT_FILES: FileSystemItem[] = [
+  { id: '1', name: 'src', type: 'folder', parentId: null },
+  { id: '2', name: 'App.tsx', type: 'file', content: 'export default function App() {\n  return <h1>Hello App-Forge!</h1>;\n}', parentId: '1' },
+  { id: '3', name: 'utils.ts', type: 'file', content: 'export const add = (a: number, b: number) => a + b;', parentId: '1' },
+  { id: '4', name: 'package.json', type: 'file', content: '{\n  "name": "app-forge-project",\n  "version": "1.0.0"\n}', parentId: null },
+];
 
-  const addLog = (msg: string) => setLogs(prev => [...prev, msg]);
+function AppForgeEditor() {
+  const [files, setFiles] = React.useState<FileSystemItem[]>(DEFAULT_FILES);
+  const [activeFileId, setActiveFileId] = React.useState<string>('2');
+  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set(['1']));
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [chatMessages, setChatMessages] = React.useState<{role: 'user' | 'ai', content: string}[]>([]);
+  const [chatInput, setChatInput] = React.useState("");
 
-  const buildFileTree = (filePaths: string[]): FileNode[] => {
-    const root: FileNode[] = [];
-    filePaths.forEach(path => {
-      const parts = path.split('/');
-      let currentLevel: FileNode[] = root;
-      let currentPath = '';
+  const activeFile = files.find(f => f.id === activeFileId);
 
-      parts.forEach((part, index) => {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        const isLastPart = index === parts.length - 1;
-        let node: FileNode | undefined = currentLevel.find(n => n.name === part);
-
-        if (!node) {
-          const category = apkProcessor.getFileContent(currentPath)?.category;
-          node = {
-            name: part,
-            path: currentPath,
-            type: isLastPart ? 'file' : 'directory',
-            category: isLastPart ? category : undefined,
-            children: isLastPart ? undefined : []
-          };
-          currentLevel.push(node);
-        }
-        
-        if (node && node.type === 'directory' && node.children) {
-          currentLevel = node.children;
-        }
-      });
-    });
-
-    // Sort: directories first, then alphabetically
-    const sortTree = (nodes: FileNode[]) => {
-      nodes.sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-      nodes.forEach(node => {
-        if (node.children) sortTree(node.children);
-      });
-    };
-    sortTree(root);
-    return root;
-  };
-
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    addLog(`[INFO] Reading ${file.name}...`);
-    try {
-      const names = await apkProcessor.loadAPK(file);
-      setFileTree(buildFileTree(names));
-      addLog(`[SUCCESS] Loaded ${names.length} files from APK`);
-      toast.success("APK loaded successfully");
-    } catch (err) {
-      console.error(err);
-      addLog(`[ERROR] Failed to load APK: ${err instanceof Error ? err.message : String(err)}`);
-      toast.error("Failed to load APK");
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const handleFileSelect = (path: string) => {
-    const file = apkProcessor.getFileContent(path);
-    if (!file) return;
-
-    setCurrentFilePath(path);
-    if (!openFiles.includes(path)) {
-      setOpenFiles(prev => [...prev, path]);
-    }
-
-    if (file.type === "text") {
-      setFileContent(file.content as string);
-    } else {
-      setFileContent(`[Binary Content: ${(file.content as Uint8Array).length} bytes]`);
-    }
-  };
-
-  const closeFile = (e: React.MouseEvent, path: string) => {
-    e.stopPropagation();
-    const newOpenFiles = openFiles.filter(f => f !== path);
-    setOpenFiles(newOpenFiles);
-    if (currentFilePath === path) {
-      const nextFile: string | null = newOpenFiles.length > 0 ? (newOpenFiles[newOpenFiles.length - 1] ?? null) : null;
-      setCurrentFilePath(nextFile);
-    }
-  };
-
-  const handleContentChange = (content: string) => {
-    setFileContent(content);
-    if (currentFilePath) {
-      apkProcessor.updateFileContent(currentFilePath, content);
-    }
-  };
-
-  const handleBuild = async () => {
-    setIsBuilding(true);
-    addLog("[BUILD] Starting build process...");
-    try {
-      const blob = await apkProcessor.rebuildAPK();
-      addLog("[BUILD] APK generated successfully");
-      addLog("[SUCCESS] Build finished");
-      toast.success("Build complete!");
-      
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "modified_app.apk";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      addLog(`[ERROR] Build failed: ${err instanceof Error ? err.message : String(err)}`);
-      toast.error("Build failed");
-    } finally {
-      setIsBuilding(false);
-    }
-  };
-
-  const toggleFolder = (path: string) => {
+  const toggleFolder = (id: string) => {
     const next = new Set(expandedFolders);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setExpandedFolders(next);
   };
 
-  const renderFileTree = (nodes: FileNode[]) => {
-    return nodes
-      .filter(node => {
-        const matchesSearch = node.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesCategory = activeCategory === 'all' || 
-          (node.type === 'file' && node.category === activeCategory) ||
-          (node.type === 'directory' && node.children?.some(c => c.category === activeCategory || c.type === 'directory'));
-        
-        return (matchesSearch && matchesCategory) || (node.children && node.children.length > 0 && matchesCategory);
-      })
-      .map(node => {
-        const isExpanded = expandedFolders.has(node.path);
-        const isSelected = currentFilePath === node.path;
+  const addFile = (parentId: string | null) => {
+    const name = window.prompt("Enter file name:");
+    if (!name) return;
+    const newFile: FileSystemItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      type: 'file',
+      content: '// New file',
+      parentId
+    };
+    setFiles([...files, newFile]);
+    setActiveFileId(newFile.id);
+  };
 
-        if (node.type === 'directory') {
-          return (
-            <div key={node.path}>
-              <button
-                onClick={() => toggleFolder(node.path)}
-                className="flex w-full items-center gap-1 px-2 py-1 text-sm hover:bg-accent/50 rounded-sm"
-              >
-                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                <Folder className="h-4 w-4 text-blue-400" />
-                <span className="truncate">{node.name}</span>
-              </button>
-              {isExpanded && node.children && (
-                <div className="ml-4 border-l pl-2">
-                  {renderFileTree(node.children)}
-                </div>
-              )}
-            </div>
-          );
-        }
+  const deleteItem = (id: string) => {
+    if (confirm("Are you sure?")) {
+      setFiles(files.filter(f => f.id !== id && f.parentId !== id));
+      if (activeFileId === id) setActiveFileId('');
+    }
+  };
 
-        return (
-          <DropdownMenu key={node.path}>
-            <DropdownMenuTrigger asChild>
-              <button
-                onClick={() => handleFileSelect(node.path)}
-                className={`flex w-full items-center gap-2 px-2 py-1 text-sm hover:bg-accent/50 rounded-sm ${isSelected ? 'bg-accent text-accent-foreground' : ''}`}
-              >
-                <div className="w-4" />
-                {node.name.endsWith('.xml') ? <FileCode className="h-4 w-4 text-orange-400" /> : <FileIcon className="h-4 w-4" />}
-                <span className="truncate">{node.name}</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => handleFileSelect(node.path)}>
-                <Edit2 className="mr-2 h-4 w-4" /> Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive">
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        );
+  const handleEditorChange = (value: string | undefined) => {
+    if (!activeFileId) return;
+    setFiles(files.map(f => f.id === activeFileId ? { ...f, content: value } : f));
+  };
+
+  const runAnalysis = async () => {
+    if (!activeFile || activeFile.type !== 'file') return;
+    setIsAnalyzing(true);
+    toast.info("Analyzing code...");
+    try {
+      const result = await analyzeCode({ 
+        code: activeFile.content || "", 
+        fileName: activeFile.name 
       });
+      setChatMessages(prev => [...prev, { 
+        role: 'ai', 
+        content: `${result.summary}\n\nSuggestions:\n${result.suggestions.map(s => `• ${s}`).join('\n')}` 
+      }]);
+      toast.success("Analysis complete");
+    } catch (err) {
+      toast.error("Analysis failed");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const sendChatMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    setChatMessages(prev => [...prev, { role: 'user', content: chatInput }]);
+    setChatInput("");
+    // Simple mock response
+    setTimeout(() => {
+      setChatMessages(prev => [...prev, { role: 'ai', content: "I'm looking at your code. How can I help with this specific part?" }]);
+    }, 1000);
+  };
+
+  const renderTree = (parentId: string | null, level = 0) => {
+    return files
+      .filter(f => f.parentId === parentId)
+      .map(item => (
+        <div key={item.id} className="select-none">
+          <div 
+            className={`flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-accent/50 group ${activeFileId === item.id ? 'bg-accent text-accent-foreground' : ''}`}
+            style={{ paddingLeft: `${level * 12 + 8}px` }}
+            onClick={() => item.type === 'folder' ? toggleFolder(item.id) : setActiveFileId(item.id)}
+          >
+            {item.type === 'folder' ? (
+              expandedFolders.has(item.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
+            ) : (
+              <FileCode className="h-4 w-4 text-primary/70" />
+            )}
+            <span className="flex-1 truncate">{item.name}</span>
+            <button 
+              onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
+              className="opacity-0 group-hover:opacity-100 p-1 hover:text-destructive"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+          {item.type === 'folder' && expandedFolders.has(item.id) && renderTree(item.id, level + 1)}
+        </div>
+      ));
   };
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground overflow-hidden">
-      <header className="flex h-14 items-center justify-between border-b px-6 shrink-0 bg-muted/40">
-        <div className="flex items-center gap-3">
-          <div className="bg-primary/10 p-1.5 rounded-lg">
-            <Package className="h-5 w-5 text-primary" />
+    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans">
+      {/* Sidebar */}
+      <aside className="w-64 border-r flex flex-col bg-card/30">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div className="flex items-center gap-2 font-bold text-lg">
+            <Code2 className="h-5 w-5 text-primary" />
+            <span>App-Forge</span>
           </div>
-          <div>
-            <h1 className="text-sm font-bold tracking-tight">APKLab IDE</h1>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Web Edition</p>
+          <div className="flex gap-1">
+            <button onClick={() => addFile(null)} className="p-1 hover:bg-accent rounded" title="New File">
+              <FilePlus className="h-4 w-4" />
+            </button>
           </div>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            accept=".apk,.zip"
-            className="hidden"
-          />
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => fileInputRef.current?.click()} 
-            disabled={isUploading}
-            className="h-8"
-          >
-            {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            <span className="ml-2 hidden sm:inline">Upload APK</span>
-          </Button>
-          <div className="w-px h-4 bg-border mx-1" />
-          <Button 
-            size="sm" 
-            onClick={handleBuild} 
-            disabled={isBuilding || fileTree.length === 0}
-            className="h-8 px-4"
-          >
-            {isBuilding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Hammer className="mr-2 h-4 w-4" />}
-            {isBuilding ? "Building..." : "Build & Sign"}
-          </Button>
-        </div>
-      </header>
-
-      <main className="flex flex-1 overflow-hidden">
-        {/* File Explorer */}
-        <aside className="w-72 border-r bg-muted/20 flex flex-col shrink-0">
-          <div className="p-3 space-y-3">
-            <div className="flex flex-wrap gap-1 mb-2">
-              <Button 
-                variant={activeCategory === 'all' ? 'default' : 'ghost'} 
-                size="icon" 
-                className="h-7 w-7" 
-                onClick={() => setActiveCategory('all')}
-                title="All Files"
-              >
-                <Layers className="h-3.5 w-3.5" />
-              </Button>
-              <Button 
-                variant={activeCategory === 'manifest' ? 'default' : 'ghost'} 
-                size="icon" 
-                className="h-7 w-7" 
-                onClick={() => setActiveCategory('manifest')}
-                title="Manifest"
-              >
-                <FileCode className="h-3.5 w-3.5" />
-              </Button>
-              <Button 
-                variant={activeCategory === 'code' ? 'default' : 'ghost'} 
-                size="icon" 
-                className="h-7 w-7" 
-                onClick={() => setActiveCategory('code')}
-                title="Code"
-              >
-                <Code className="h-3.5 w-3.5" />
-              </Button>
-              <Button 
-                variant={activeCategory === 'resources' ? 'default' : 'ghost'} 
-                size="icon" 
-                className="h-7 w-7" 
-                onClick={() => setActiveCategory('resources')}
-                title="Resources"
-              >
-                <ImageIcon className="h-3.5 w-3.5" />
-              </Button>
-              <Button 
-                variant={activeCategory === 'security' ? 'default' : 'ghost'} 
-                size="icon" 
-                className="h-7 w-7" 
-                onClick={() => setActiveCategory('security')}
-                title="Security/Certs"
-              >
-                <Shield className="h-3.5 w-3.5" />
-              </Button>
-              <Button 
-                variant={activeCategory === 'native' ? 'default' : 'ghost'} 
-                size="icon" 
-                className="h-7 w-7" 
-                onClick={() => setActiveCategory('native')}
-                title="Native Libs"
-              >
-                <Cpu className="h-3.5 w-3.5" />
-              </Button>
-              <Button 
-                variant={activeCategory === 'config' ? 'default' : 'ghost'} 
-                size="icon" 
-                className="h-7 w-7" 
-                onClick={() => setActiveCategory('config')}
-                title="Settings/Config"
-              >
-                <Settings className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Search files..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 h-8 text-xs bg-background/50"
-              />
-            </div>
+        <ScrollArea className="flex-1">
+          <div className="py-2">
+            {renderTree(null)}
           </div>
-          <ScrollArea className="flex-1">
-            <div className="px-2 py-1">
-              {fileTree.length > 0 ? renderFileTree(fileTree) : (
-                <div className="py-10 text-center space-y-2 opacity-40">
-                  <Folder className="h-8 w-8 mx-auto" />
-                  <p className="text-[10px] uppercase font-bold tracking-tighter">No workspace loaded</p>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </aside>
+        </ScrollArea>
+        <div className="p-4 border-t bg-muted/20 text-[10px] text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+          <Terminal className="h-3 w-3" />
+          <span>Workspace Ready</span>
+        </div>
+      </aside>
 
-        {/* Editor Area */}
-        <section className="flex-1 flex flex-col min-w-0 bg-background">
-          {openFiles.length > 0 ? (
-            <>
-              {/* Tab Bar */}
-              <div className="flex h-10 border-b bg-muted/30 overflow-x-auto no-scrollbar shrink-0">
-                {openFiles.map((path) => (
-                  <button
-                    key={path}
-                    onClick={() => handleFileSelect(path)}
-                    className={`flex items-center gap-2 px-4 border-r text-xs transition-colors shrink-0 group ${
-                      currentFilePath === path 
-                        ? "bg-background border-t-2 border-t-primary" 
-                        : "hover:bg-muted/50 text-muted-foreground"
-                    }`}
-                  >
-                    <FileCode className={`h-3.5 w-3.5 ${path.endsWith('.xml') ? 'text-orange-400' : ''}`} />
-                    <span className="max-w-[150px] truncate">{path.split('/').pop()}</span>
-                    <X 
-                      className="h-3 w-3 ml-1 opacity-0 group-hover:opacity-100 hover:bg-muted rounded-sm p-0.5" 
-                      onClick={(e) => closeFile(e, path)}
-                    />
-                  </button>
-                ))}
-              </div>
+      {/* Editor Main */}
+      <main className="flex-1 flex flex-col min-w-0">
+        <header className="h-12 border-b flex items-center justify-between px-4 bg-muted/10 shrink-0">
+          <div className="text-sm font-mono text-muted-foreground">
+            {activeFile ? activeFile.name : 'No file selected'}
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              size="sm" 
+              variant="default"
+              onClick={runAnalysis}
+              disabled={isAnalyzing || !activeFile}
+              className="h-8 px-3 shadow-lg shadow-primary/20"
+            >
+              {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+              Analyze
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
+        </header>
 
-              {/* Breadcrumbs */}
-              <div className="px-4 py-1.5 border-b text-[10px] font-mono text-muted-foreground bg-muted/10 shrink-0">
-                {currentFilePath?.split('/').join(' / ')}
-              </div>
-
-              <div className="flex-1 relative">
-                <textarea
-                  value={fileContent}
-                  onChange={(e) => handleContentChange(e.target.value)}
-                  disabled={currentFilePath ? apkProcessor.getFileContent(currentFilePath)?.type === "binary" : true}
-                  className="absolute inset-0 w-full h-full p-6 font-mono text-sm resize-none bg-background focus:outline-none disabled:opacity-50 selection:bg-primary/20"
-                  spellCheck={false}
-                />
-              </div>
-            </>
+        <div className="flex-1 relative bg-[#1e1e1e]">
+          {activeFile ? (
+            <Editor
+              height="100%"
+              defaultLanguage="typescript"
+              theme="vs-dark"
+              value={activeFile.content}
+              onChange={handleEditorChange}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
+                padding: { top: 20 },
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+              }}
+            />
           ) : (
-            <div className="flex flex-1 items-center justify-center">
-              <div className="text-center space-y-6 max-w-sm px-6">
-                <div className="relative mx-auto w-24 h-24">
-                   <Package className="h-24 w-24 opacity-5" />
-                   <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-12 h-12 rounded-full bg-primary/5 animate-pulse" />
-                   </div>
-                </div>
-                <div className="space-y-2">
-                  <h3 className="font-semibold text-lg">Empty Workspace</h3>
-                  <p className="text-sm text-muted-foreground">Upload an APK to start modifying application resources, manifests, and Smali code.</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                  <Upload className="h-4 w-4 mr-2" /> Select File
-                </Button>
-              </div>
+            <div className="flex items-center justify-center h-full text-muted-foreground italic">
+              Select a file to start forging
             </div>
           )}
-        </section>
+        </div>
+      </main>
 
-        {/* Activity Bar / Panels */}
-        <aside className="w-80 border-l bg-muted/20 flex flex-col shrink-0">
-          <Tabs defaultValue="logs" className="flex flex-col h-full">
-            <TabsList className="w-full justify-start rounded-none border-b bg-transparent h-10 px-2 shrink-0">
-              <TabsTrigger value="logs" className="text-[10px] uppercase font-bold tracking-wider px-4">Build Logs</TabsTrigger>
-              <TabsTrigger value="info" className="text-[10px] uppercase font-bold tracking-wider px-4">Properties</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="logs" className="flex-1 min-h-0 m-0 p-4">
-              <div className="font-mono text-[11px] space-y-1.5 bg-black/95 text-green-500/90 p-4 rounded-lg h-full overflow-auto shadow-inner border border-white/5">
-                {logs.map((log, i) => (
-                  <p key={i} className={
-                    log.includes("[ERROR]") ? "text-red-400" : 
-                    log.includes("[SUCCESS]") ? "text-green-400 font-bold" :
-                    log.includes("[BUILD]") ? "text-sky-400" :
-                    log.includes("[SIGN]") ? "text-amber-400" : ""
-                  }>
-                    {log}
-                  </p>
-                ))}
+      {/* AI Chat Sidebar */}
+      <aside className="w-80 border-l flex flex-col bg-card/30">
+        <header className="h-12 border-b flex items-center px-4 bg-muted/10 shrink-0">
+          <MessageSquare className="h-4 w-4 mr-2 text-primary" />
+          <span className="text-sm font-semibold">AI Assistant</span>
+        </header>
+        
+        <ScrollArea className="flex-1 p-4">
+          <div className="space-y-4">
+            {chatMessages.length === 0 && (
+              <div className="text-sm text-muted-foreground text-center py-8">
+                Ask me anything about your code or trigger an analysis.
               </div>
-            </TabsContent>
-            
-            <TabsContent value="info" className="flex-1 m-0 p-4 space-y-4">
-              <Card className="bg-background/40 border-dashed">
-                <CardHeader className="p-4">
-                  <CardTitle className="text-xs font-bold uppercase tracking-tight opacity-70">Extraction Metadata</CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 pt-0 text-[11px] space-y-3">
-                  <div className="flex justify-between items-center pb-2 border-b border-white/5">
-                    <span className="text-muted-foreground">Total Files</span>
-                    <span className="font-mono bg-primary/10 px-2 py-0.5 rounded text-primary">{fileTree.length > 0 ? 'Extracted' : '0'}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Modified</span>
-                    <span className="font-mono text-amber-500">0 files</span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="bg-primary/5 rounded-lg p-4 border border-primary/10 space-y-3">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Quick Actions</h4>
-                <div className="grid grid-cols-1 gap-2">
-                   <Button 
-                    variant="secondary" 
-                    size="sm" 
-                    className="w-full justify-start h-8 text-xs" 
-                    disabled={!fileTree.length || isBuilding}
-                    onClick={async () => {
-                      try {
-                        addLog("[INFO] Exporting source as ZIP...");
-                        const blob = await apkProcessor.rebuildAPK();
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = "apk_source_export.zip";
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        addLog("[SUCCESS] Source exported successfully");
-                        toast.success("Source exported as ZIP");
-                      } catch (err) {
-                        addLog(`[ERROR] Export failed: ${err instanceof Error ? err.message : String(err)}`);
-                        toast.error("Export failed");
-                      }
-                    }}
-                   >
-                     <Download className="h-3.5 w-3.5 mr-2" /> Export Source
-                   </Button>
-                   <Button variant="secondary" size="sm" className="w-full justify-start h-8 text-xs" disabled={!fileTree.length}>
-                     <Search className="h-3.5 w-3.5 mr-2" /> Global Find
-                   </Button>
+            )}
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                  msg.role === 'user' 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'bg-muted text-foreground border'
+                }`}>
+                  <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
-        </aside>
-      </main>
-      
-      {/* Footer / Status Bar */}
-      <footer className="h-6 border-t bg-muted/50 px-3 flex items-center justify-between text-[10px] font-medium shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-green-500">
-             <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-             <span>Local Engine Active</span>
+            ))}
           </div>
-          <div className="w-px h-3 bg-border" />
-          <span className="text-muted-foreground">UTF-8</span>
-        </div>
-        <div className="text-muted-foreground opacity-50">
-          Powered by JSZip & Lovable
-        </div>
-      </footer>
+        </ScrollArea>
+
+        <form onSubmit={sendChatMessage} className="p-4 border-t bg-muted/5">
+          <div className="relative">
+            <Input 
+              placeholder="Ask AI..."
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              className="pr-10 bg-background"
+            />
+            <button 
+              type="submit"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:text-primary transition-colors"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
+      </aside>
     </div>
   );
 }

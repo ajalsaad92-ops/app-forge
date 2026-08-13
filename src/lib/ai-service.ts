@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import Groq from "groq-sdk";
 
 export type AIProvider = 'gemini' | 'groq' | 'siliconflow';
 
@@ -14,7 +15,7 @@ export const PROVIDER_LINKS: Record<AIProvider, string> = {
 };
 
 export const PROVIDER_MODELS: Record<AIProvider, string> = {
-  gemini: "gemini-1.5-flash",
+  gemini: "gemini-1.5-flash-latest",
   groq: "llama-3.3-70b-versatile",
   siliconflow: "Qwen/Qwen2.5-72B-Instruct",
 };
@@ -53,6 +54,16 @@ async function callOpenAICompatible(settings: AISettings, prompt: string) {
   return data.choices[0].message.content;
 }
 
+async function callGroq(apiKey: string, prompt: string) {
+  const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
+  const completion = await groq.chat.completions.create({
+    messages: [{ role: "user", content: prompt }],
+    model: PROVIDER_MODELS.groq,
+    temperature: 0.7,
+  });
+  return completion.choices[0]?.message?.content || "";
+}
+
 async function callGemini(apiKey: string, prompt: string) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
@@ -78,8 +89,10 @@ export async function callAI(settings: AISettings, prompt: string) {
   try {
     if (settings.provider === 'gemini') {
       return await callGemini(settings.apiKey, prompt);
+    } else if (settings.provider === 'groq') {
+      return await callGroq(settings.apiKey, prompt);
     } else {
-      return await callOpenAICompatible(settings.provider === 'groq' ? { ...settings, provider: 'groq' } : { ...settings, provider: 'siliconflow' }, prompt);
+      return await callOpenAICompatible(settings, prompt);
     }
   } catch (error: any) {
     console.error(`${settings.provider} API Error:`, error);
@@ -97,7 +110,7 @@ export async function getCodeAction(settings: AISettings, code: string, instruct
       "modifiedCode": "The entire modified file content"
     }
 
-    Return ONLY the raw JSON. No markdown formatting.
+    IMPORTANT: Return ONLY the raw JSON. No markdown formatting, no conversational text.
 
     CODE:
     ${code}
@@ -106,28 +119,34 @@ export async function getCodeAction(settings: AISettings, code: string, instruct
   const result = await callAI(settings, prompt);
   
   try {
+    // Attempt to parse result as JSON
     const cleanJson = result.replace(/^```json\n/i, "").replace(/^```\n/i, "").replace(/\n```$/g, "").trim();
-    if (!cleanJson || (!cleanJson.startsWith('{') && !cleanJson.startsWith('['))) {
-      throw new Error("AI returned non-JSON content");
+    const parsed = JSON.parse(cleanJson);
+    if (!parsed.modifiedCode) {
+      throw new Error("AI response missing modifiedCode");
     }
-    return JSON.parse(cleanJson);
+    return parsed;
   } catch (e) {
-    const modifiedCode = result.replace(/^```[a-z]*\n/i, "").replace(/\n```$/g, "").trim();
-    return {
-      explanation: "Performed changes (manual recovery).",
-      modifiedCode: modifiedCode || code
-    };
+    console.error("Failed to parse AI JSON response:", result);
+    throw new Error("AI failed to return valid JSON. Please try again with a different instruction.");
   }
 }
 
-export async function auditCodebase(settings: AISettings, files: { name: string, content: string }[]) {
-  const fileSummary = files.map(f => `FILE: ${f.name}\nCONTENT:\n${f.content.substring(0, 2000)}`).join('\n\n---\n\n');
+export async function auditCodebase(settings: AISettings) {
   const prompt = `
-    Analyze this React/Vite project architecture based on these core files. 
-    Identify missing features, security flaws, and suggest improvements.
+    Analyze this React/Vite project architecture. Identify missing features, security flaws, and suggest improvements.
     
-    PROJECT FILES:
-    ${fileSummary}
+    PROJECT OVERVIEW:
+    - Framework: React 19, TanStack Start, Vite
+    - Styling: Tailwind CSS v4, shadcn/ui
+    - Storage: IndexedDB (idb-keyval)
+    - Key Components:
+      - src/routes/editor.tsx (Main IDE)
+      - src/lib/ai-service.ts (AI Factory)
+      - src/lib/apk-processor.ts (JSZip extraction/building)
+      - src/integrations/supabase/ (Backend)
+
+    Analyze the project based on this architecture.
   `;
 
   return await callAI(settings, prompt);

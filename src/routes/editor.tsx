@@ -20,7 +20,8 @@ import {
   Eye,
   Key,
   Check,
-  X
+  X,
+  Edit2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";

@@ -304,10 +304,7 @@ function AppForgeEditor() {
         (f.name.endsWith('.ts') || f.name.endsWith('.tsx') || f.name.endsWith('.xml'))
       ).slice(0, 10);
 
-      const auditResult = await auditCodebase(aiSettings, coreFiles.map(f => ({
-        name: f.name,
-        content: f.content as string
-      })));
+      const auditResult = await auditCodebase(aiSettings);
 
       setChatMessages(prev => [...prev, { 
         role: 'ai', 
@@ -429,7 +426,11 @@ function AppForgeEditor() {
   };
 
   const editorContent = activeFile?.content;
-  const isBinary = activeFile?.type === 'file' && typeof editorContent !== 'string';
+  const BINARY_EXTENSIONS = ['.dex', '.so', '.arsc', '.apk', '.zip', '.pdf', '.png', '.jpg', '.pb'];
+  const isBinary = activeFile?.type === 'file' && (
+    typeof editorContent !== 'string' || 
+    BINARY_EXTENSIONS.some(ext => activeFile.name.toLowerCase().endsWith(ext))
+  );
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans">
@@ -480,7 +481,7 @@ function AppForgeEditor() {
               size="sm" 
               variant="outline"
               onClick={runMetaAudit}
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || isBinary}
               className="h-8 px-3 text-xs"
             >
               <ShieldCheck className="mr-2 h-4 w-4" />

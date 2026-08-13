@@ -27,7 +27,7 @@ interface FileNode {
   name: string;
   path: string;
   type: 'file' | 'directory';
-  children?: FileNode[];
+  children?: FileNode[] | undefined;
 }
 
 function APKEditor() {
@@ -127,7 +127,7 @@ function APKEditor() {
     const newOpenFiles = openFiles.filter(f => f !== path);
     setOpenFiles(newOpenFiles);
     if (currentFilePath === path) {
-      const nextFile = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
+      const nextFile: string | null = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
       setCurrentFilePath(nextFile);
     }
   };

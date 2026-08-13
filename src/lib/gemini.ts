@@ -67,3 +67,35 @@ export async function analyzeAndRefactorCode(apiKey: string, code: string, instr
   // Clean up potential markdown wrapper if LLM ignores instructions
   return result.replace(/^```[a-z]*\n/i, "").replace(/\n```$/g, "").trim();
 }
+
+export async function getCodeAction(apiKey: string, code: string, instruction: string) {
+  const prompt = `
+    You are a code transformation assistant. Perform the following action: "${instruction}".
+    
+    Return a JSON object with the following structure:
+    {
+      "explanation": "Brief explanation of what was changed",
+      "modifiedCode": "The entire modified file content"
+    }
+
+    Return ONLY the raw JSON. No markdown formatting.
+
+    CODE:
+    ${code}
+  `;
+
+  const result = await callGemini(apiKey, prompt);
+  
+  try {
+    // Clean potential markdown and parse
+    const cleanJson = result.replace(/^```json\n/i, "").replace(/^```\n/i, "").replace(/\n```$/g, "").trim();
+    return JSON.parse(cleanJson);
+  } catch (e) {
+    // Fallback if LLM doesn't return valid JSON
+    return {
+      explanation: "Performed the requested changes.",
+      modifiedCode: result.replace(/^```[a-z]*\n/i, "").replace(/\n```$/g, "").trim()
+    };
+  }
+}
+

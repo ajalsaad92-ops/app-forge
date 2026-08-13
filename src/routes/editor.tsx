@@ -32,7 +32,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
-import { getCodeAction } from "@/lib/gemini";
+import { getCodeAction, callAI, auditCodebase, type AIProvider, type AISettings, PROVIDER_LINKS } from "@/lib/ai-service";
 import { apkProcessor, exportToZip } from "@/lib/apk-processor";
 import {
   Dialog,
@@ -43,6 +43,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import { ShieldCheck } from "lucide-react";
 
 export const Route = createFileRoute("/editor")({
   component: () => (
@@ -79,15 +87,28 @@ function AppForgeEditor() {
   const [viewMode, setViewMode] = React.useState<'editor' | 'diff'>('editor');
   const [originalCode, setOriginalCode] = React.useState<string>("");
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
-  const [apiKey, setApiKey] = React.useState<string>("");
+  const [aiSettings, setAiSettings] = React.useState<AISettings>({
+    provider: 'gemini',
+    apiKey: ''
+  });
   const [showSettings, setShowSettings] = React.useState(false);
   const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
 
   // Load API Key and Files from storage
   React.useEffect(() => {
     const init = async () => {
-      const savedKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
-      if (savedKey) setApiKey(savedKey);
+      const savedSettings = localStorage.getItem("APPFORGE_AI_SETTINGS");
+      if (savedSettings) {
+        try {
+          setAiSettings(JSON.parse(savedSettings));
+        } catch (e) {
+          console.error("Failed to parse AI settings", e);
+        }
+      } else {
+        // Fallback to old key if exists
+        const oldKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
+        if (oldKey) setAiSettings({ provider: 'gemini', apiKey: oldKey });
+      }
 
       try {
         const storedFiles = await get<FileSystemItem[]>(STORAGE_KEY);
@@ -114,11 +135,11 @@ function AppForgeEditor() {
     }
   }, [files, isFileSystemLoaded]);
 
-  const saveApiKey = (key: string) => {
-    localStorage.setItem("APPFORGE_GEMINI_KEY", key);
-    setApiKey(key);
+  const saveAiSettings = (settings: AISettings) => {
+    localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify(settings));
+    setAiSettings(settings);
     setShowSettings(false);
-    toast.success("API Key saved");
+    toast.success("AI Settings saved");
   };
 
   const activeFile = files.find(f => f.id === activeFileId);
@@ -266,6 +287,40 @@ function AppForgeEditor() {
     }
   };
 
+  const runMetaAudit = async () => {
+    if (!aiSettings.apiKey) {
+      toast.error("Please configure AI settings first");
+      setShowSettings(true);
+      return;
+    }
+
+    setIsAnalyzing(true);
+    const toastId = toast.loading("Performing Meta-Audit on App-Forge source...");
+    try {
+      // Pick some core files for context
+      const coreFiles = files.filter(f => 
+        f.type === 'file' && 
+        typeof f.content === 'string' &&
+        (f.name.endsWith('.ts') || f.name.endsWith('.tsx') || f.name.endsWith('.xml'))
+      ).slice(0, 10);
+
+      const auditResult = await auditCodebase(aiSettings, coreFiles.map(f => ({
+        name: f.name,
+        content: f.content as string
+      })));
+
+      setChatMessages(prev => [...prev, { 
+        role: 'ai', 
+        content: `### 🛡️ App-Forge Meta-Audit Results\n\n${auditResult}` 
+      }]);
+      toast.success("Meta-Audit complete", { id: toastId });
+    } catch (err: any) {
+      toast.error(`Audit failed: ${err.message}`, { id: toastId });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const sendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -279,8 +334,8 @@ function AppForgeEditor() {
       return;
     }
 
-    if (!apiKey) {
-      setChatMessages(prev => [...prev, { role: 'ai', content: "Please configure your Gemini API Key in settings first." }]);
+    if (!aiSettings.apiKey) {
+      setChatMessages(prev => [...prev, { role: 'ai', content: `Please configure your ${aiSettings.provider} API Key in settings first.` }]);
       setShowSettings(true);
       return;
     }
@@ -290,7 +345,7 @@ function AppForgeEditor() {
     
     try {
       const currentCode = activeFile.content;
-      const actionResult = await getCodeAction(apiKey, currentCode, userMessage);
+      const actionResult = await getCodeAction(aiSettings, currentCode, userMessage);
       
       setPendingCode(actionResult.modifiedCode);
       setOriginalCode(currentCode);
@@ -423,6 +478,16 @@ function AppForgeEditor() {
             </Button>
             <Button 
               size="sm" 
+              variant="outline"
+              onClick={runMetaAudit}
+              disabled={isAnalyzing}
+              className="h-8 px-3 text-xs"
+            >
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              Audit Source
+            </Button>
+            <Button 
+              size="sm" 
               onClick={runAnalysis}
               disabled={isAnalyzing || !activeFile || isBinary}
               className="h-8 px-3"
@@ -483,27 +548,51 @@ function AppForgeEditor() {
         <Dialog open={showSettings} onOpenChange={setShowSettings}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Forge Settings</DialogTitle>
+              <DialogTitle>Forge AI Settings</DialogTitle>
               <DialogDescription>
-                Your Gemini API key is stored safely in localStorage.
+                Configure your preferred AI provider and API keys.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="api-key" className="flex items-center gap-2">
-                  <Key className="h-4 w-4" /> Gemini API Key
+                <Label>AI Provider</Label>
+                <Select 
+                  value={aiSettings.provider} 
+                  onValueChange={(v: AIProvider) => setAiSettings({...aiSettings, provider: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gemini">Google Gemini</SelectItem>
+                    <SelectItem value="groq">Groq (Llama 3)</SelectItem>
+                    <SelectItem value="siliconflow">SiliconFlow (Qwen/DeepSeek)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="api-key" className="flex items-center justify-between">
+                  <div className="flex items-center gap-2"><Key className="h-4 w-4" /> API Key</div>
+                  <a 
+                    href={PROVIDER_LINKS[aiSettings.provider]} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="text-[10px] text-primary hover:underline"
+                  >
+                    Get Key
+                  </a>
                 </Label>
                 <Input
                   id="api-key"
                   type="password"
-                  placeholder="Enter API key..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={`Enter ${aiSettings.provider} API key...`}
+                  value={aiSettings.apiKey}
+                  onChange={(e) => setAiSettings({...aiSettings, apiKey: e.target.value})}
                 />
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={() => saveApiKey(apiKey)}>Save</Button>
+              <Button onClick={() => saveAiSettings(aiSettings)}>Save Settings</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

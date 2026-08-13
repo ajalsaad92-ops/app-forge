@@ -17,14 +17,16 @@ import {
   Settings,
   Split,
   Eye,
-  Key
+  Key,
+  Check,
+  X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
-import { analyzeAndRefactorCode } from "@/lib/gemini";
+import { analyzeAndRefactorCode, getCodeAction } from "@/lib/gemini";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +66,7 @@ function AppForgeEditor() {
   const [chatInput, setChatInput] = React.useState("");
   const [viewMode, setViewMode] = React.useState<'editor' | 'diff'>('editor');
   const [originalCode, setOriginalCode] = React.useState<string>("");
+  const [pendingCode, setPendingCode] = React.useState<string | null>(null);
   const [apiKey, setApiKey] = React.useState<string>("");
   const [showSettings, setShowSettings] = React.useState(false);
 
@@ -147,7 +150,7 @@ function AppForgeEditor() {
     setChatInput("");
 
     if (!activeFile || activeFile.type !== 'file') {
-      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a file first so I can help you refactor it." }]);
+      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a file first so I can perform actions on it." }]);
       return;
     }
 
@@ -158,26 +161,43 @@ function AppForgeEditor() {
     }
 
     setIsAnalyzing(true);
-    setChatMessages(prev => [...prev, { role: 'ai', content: "Refactoring code based on your request..." }]);
+    setChatMessages(prev => [...prev, { role: 'ai', content: "Processing your request..." }]);
     
     try {
       const currentCode = activeFile.content || "";
+      const actionResult = await getCodeAction(apiKey, currentCode, userMessage);
+      
+      setPendingCode(actionResult.modifiedCode);
       setOriginalCode(currentCode);
       
-      const refactoredCode = await analyzeAndRefactorCode(apiKey, currentCode, userMessage);
+      setChatMessages(prev => [...prev, { 
+        role: 'ai', 
+        content: `${actionResult.explanation}\n\nI have prepared the changes. Would you like to apply them?` 
+      }]);
       
-      // Update the file content
-      setFiles(files.map(f => f.id === activeFileId ? { ...f, content: refactoredCode } : f));
-      
-      setChatMessages(prev => [...prev, { role: 'ai', content: "I've refactored the code for you. You can see the changes in the editor or toggle the Diff view." }]);
       setViewMode('diff');
-      toast.success("Code refactored successfully");
+      toast.info("Changes prepared. Preview in Diff View.");
     } catch (err: any) {
       setChatMessages(prev => [...prev, { role: 'ai', content: `Error: ${err.message}` }]);
-      toast.error("Refactoring failed");
+      toast.error("Action failed");
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const applyChanges = () => {
+    if (!pendingCode || !activeFileId) return;
+    
+    setFiles(files.map(f => f.id === activeFileId ? { ...f, content: pendingCode } : f));
+    setPendingCode(null);
+    setViewMode('editor');
+    toast.success("Changes applied successfully");
+  };
+
+  const discardChanges = () => {
+    setPendingCode(null);
+    setViewMode('editor');
+    toast.info("Changes discarded");
   };
 
   const renderTree = (parentId: string | null, level = 0) => {
@@ -289,7 +309,7 @@ function AppForgeEditor() {
               <DiffEditor
                 height="100%"
                 original={originalCode || activeFile.content || ""}
-                modified={activeFile.content || ""}
+                modified={pendingCode || activeFile.content || ""}
                 language="typescript"
                 theme="vs-dark"
                 options={{
@@ -364,6 +384,19 @@ function AppForgeEditor() {
                     : 'bg-muted text-foreground border'
                 }`}>
                   <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+                  
+                  {msg.role === 'ai' && pendingCode && i === chatMessages.length - 1 && (
+                    <div className="flex gap-2 mt-3 pt-2 border-t">
+                      <Button size="sm" variant="default" onClick={applyChanges} className="h-7 text-[10px] px-2">
+                        <Check className="h-3 w-3 mr-1" />
+                        Confirm Apply
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={discardChanges} className="h-7 text-[10px] px-2 text-muted-foreground">
+                        <X className="h-3 w-3 mr-1" />
+                        Discard
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import { get, set } from "idb-keyval";
+import JSZip from "jszip";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
@@ -21,7 +22,9 @@ import {
   Key,
   Check,
   X,
-  Edit2
+  Edit2,
+  Upload,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -29,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
 import { analyzeAndRefactorCode, getCodeAction } from "@/lib/gemini";
+import { apkProcessor } from "@/lib/apk-processor";
 import {
   Dialog,
   DialogContent,
@@ -117,6 +121,110 @@ function AppForgeEditor() {
   };
 
   const activeFile = files.find(f => f.id === activeFileId);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    toast.info(`Extracting ${file.name}...`);
+    try {
+      const paths = await apkProcessor.loadAPK(file);
+      
+      // Convert flat paths to our FileSystemItem structure
+      const newFiles: FileSystemItem[] = [];
+      const folderMap = new Map<string, string>(); // path -> id
+
+      // Recursive folder creator
+      const getOrCreateFolder = (path: string): string | null => {
+        const parts = path.split('/');
+        if (parts.length <= 1) return null;
+        
+        const parentPath = parts.slice(0, -1).join('/');
+        if (folderMap.has(parentPath)) return folderMap.get(parentPath)!;
+
+        const grandParentId = getOrCreateFolder(parentPath);
+        const folderId = Math.random().toString(36).substr(2, 9);
+        newFiles.push({
+          id: folderId,
+          name: parts[parts.length - 2] || "folder",
+          type: 'folder',
+          parentId: grandParentId
+        });
+        folderMap.set(parentPath, folderId);
+        return folderId;
+      };
+
+      for (const path of paths) {
+        const apkFile = apkProcessor.getFileContent(path);
+        if (!apkFile) continue;
+
+        const parentId = getOrCreateFolder(path);
+        newFiles.push({
+          id: Math.random().toString(36).substr(2, 9),
+          name: apkFile.name,
+          type: 'file',
+          content: apkFile.type === 'text' ? (apkFile.content as string) : `[Binary File: ${path}]`,
+          parentId: parentId
+        });
+      }
+
+      if (newFiles.length > 0) {
+        setFiles(newFiles);
+        const firstFile = newFiles.find(f => f.type === 'file');
+        if (firstFile) setActiveFileId(firstFile.id);
+        toast.success("APK extracted successfully");
+      }
+    } catch (err) {
+      console.error("Extraction failed", err);
+      toast.error("Failed to extract file");
+    }
+  };
+
+  const handleExport = async () => {
+    toast.info("Building export package...");
+    try {
+      const exportZip = new JSZip();
+      
+      const reconstructPaths = (items: FileSystemItem[], currentPath = ""): {path: string, content: string | Uint8Array}[] => {
+        let results: {path: string, content: string | Uint8Array}[] = [];
+        items.forEach(item => {
+          const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+          if (item.type === 'file') {
+            let content: string | Uint8Array = item.content || "";
+            if (typeof content === 'string' && content.startsWith('[Binary File:')) {
+              const originalPath = content.match(/\[Binary File: (.*)\]/)?.[1];
+              if (originalPath) {
+                const original = apkProcessor.getFileContent(originalPath);
+                if (original) content = original.content;
+              }
+            }
+            results.push({ path: itemPath, content });
+          } else {
+            const children = files.filter(f => f.parentId === item.id);
+            results = [...results, ...reconstructPaths(children, itemPath)];
+          }
+        });
+        return results;
+      };
+
+      const rootItems = files.filter(f => f.parentId === null);
+      reconstructPaths(rootItems).forEach(file => {
+        exportZip.file(file.path, file.content);
+      });
+
+      const blob = await exportZip.generateAsync({ type: "blob", compression: "DEFLATE" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = "app-forge-export.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export ready");
+    } catch (err) {
+      console.error("Export failed", err);
+      toast.error("Export failed");
+    }
+  };
 
   const toggleFolder = (id: string) => {
     const next = new Set(expandedFolders);
@@ -285,6 +393,18 @@ function AppForgeEditor() {
             <span>App-Forge</span>
           </div>
           <div className="flex gap-1">
+            <label className="p-1 hover:bg-accent rounded cursor-pointer" title="Upload APK/ZIP">
+              <Upload className="h-4 w-4" />
+              <input 
+                type="file" 
+                accept=".apk,.zip" 
+                className="hidden" 
+                onChange={handleFileUpload}
+              />
+            </label>
+            <button onClick={handleExport} className="p-1 hover:bg-accent rounded" title="Export Project">
+              <Download className="h-4 w-4" />
+            </button>
             <button onClick={() => addFile(null)} className="p-1 hover:bg-accent rounded" title="New File">
               <FilePlus className="h-4 w-4" />
             </button>

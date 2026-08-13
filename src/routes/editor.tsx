@@ -326,6 +326,7 @@ function AppForgeEditor() {
 
     if (!activeFile || activeFile.type !== 'file' || typeof activeFile.content !== 'string') {
       setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a text file for the AI to analyze." }]);
+      toast.error("Please select a text file for the AI to analyze.");
       return;
     }
     const context = `The user is currently viewing this file: ${activeFile.name}. File Content: \n ${activeFile.content}. Answer their question based strictly on this file.`;

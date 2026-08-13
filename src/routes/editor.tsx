@@ -31,6 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
 import { getCodeAction, callAI, auditCodebase, type AIProvider, type AISettings, PROVIDER_LINKS } from "@/lib/ai-service";

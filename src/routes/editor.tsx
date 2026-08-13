@@ -255,12 +255,20 @@ function AppForgeEditor() {
               <FileCode className="h-4 w-4 text-primary/70" />
             )}
             <span className="flex-1 truncate">{item.name}</span>
-            <button 
-              onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:text-destructive"
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+              <button 
+                onClick={(e) => { e.stopPropagation(); renameItem(item.id, item.name); }}
+                className="p-1 hover:text-primary"
+              >
+                <Edit2 className="h-3 w-3" />
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
+                className="p-1 hover:text-destructive"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
           </div>
           {item.type === 'folder' && expandedFolders.has(item.id) && renderTree(item.id, level + 1)}
         </div>

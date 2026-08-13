@@ -28,7 +28,7 @@ interface FileNode {
   name: string;
   path: string;
   type: 'file' | 'directory';
-  category?: APKCategory;
+  category?: APKCategory | undefined;
   children?: FileNode[] | undefined;
 }
 
@@ -60,7 +60,7 @@ function APKEditor() {
         let node: FileNode | undefined = currentLevel.find(n => n.name === part);
 
         if (!node) {
-          const category = apkProcessor.getFileContent(path)?.category;
+          const category = apkProcessor.getFileContent(currentPath)?.category;
           node = {
             name: part,
             path: currentPath,

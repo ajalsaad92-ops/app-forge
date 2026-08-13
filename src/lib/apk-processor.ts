@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import pLimit from "p-limit";
 
 export type APKCategory = 'manifest' | 'code' | 'resources' | 'native' | 'config' | 'security' | 'other';
 

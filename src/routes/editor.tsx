@@ -125,6 +125,12 @@ function AppForgeEditor() {
     try {
       const paths = await apkProcessor.loadAPK(file);
       
+      // Cleanup: memory management for large APKs
+      // We are about to map the entire APK to our files state
+      // This is a memory-heavy operation. 
+      // Using a temporary Set to avoid duplicates if any
+      const pathSet = new Set(paths);
+      
       const newFiles: FileSystemItem[] = [];
       const folderMap = new Map<string, string>();
 
@@ -149,7 +155,7 @@ function AppForgeEditor() {
         return folderId;
       };
 
-      for (const path of paths) {
+      for (const path of Array.from(pathSet)) {
         const apkFile = apkProcessor.getFileContent(path);
         if (!apkFile) continue;
 

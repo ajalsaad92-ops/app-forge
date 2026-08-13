@@ -450,9 +450,29 @@ function AppForgeEditor() {
     BINARY_EXTENSIONS.some(ext => activeFile.name.toLowerCase().endsWith(ext))
   );
 
+  const callBackend = async (endpoint: string, label: string) => {
+    setIsBackendLoading(prev => ({ ...prev, [label]: true }));
+    try {
+      const response = await fetch(`http://localhost:3000/api/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        toast.success(`${label} successful`);
+      } else {
+        toast.error(`${label} failed: ${response.statusText}`);
+      }
+    } catch (err) {
+      toast.error(`Local backend not found at http://localhost:3000`);
+      console.error(err);
+    } finally {
+      setIsBackendLoading(prev => ({ ...prev, [label]: false }));
+    }
+  };
+
   return (
-    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans">
-      <aside className="w-64 border-r flex flex-col bg-card/30">
+    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans dark">
+      <aside className="w-64 border-r flex flex-col bg-sidebar/50 backdrop-blur-sm">
         <div className="p-4 border-b flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-lg">
             <Code2 className="h-5 w-5 text-primary" />

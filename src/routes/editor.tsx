@@ -146,6 +146,12 @@ function AppForgeEditor() {
     }
   };
 
+  const renameItem = (id: string, oldName: string) => {
+    const newName = window.prompt("Enter new name:", oldName);
+    if (!newName || newName === oldName) return;
+    setFiles(files.map(f => f.id === id ? { ...f, name: newName } : f));
+  };
+
   const handleEditorChange = (value: string | undefined) => {
     if (!activeFileId) return;
     setFiles(files.map(f => f.id === activeFileId ? { ...f, content: value } : f));

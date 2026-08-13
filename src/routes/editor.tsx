@@ -70,12 +70,43 @@ function AppForgeEditor() {
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
   const [apiKey, setApiKey] = React.useState<string>("");
   const [showSettings, setShowSettings] = React.useState(false);
+  const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
 
-  // Load API Key from localStorage
+  // Load API Key and Files from storage
   React.useEffect(() => {
-    const savedKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
-    if (savedKey) setApiKey(savedKey);
+    const init = async () => {
+      // API Key
+      const savedKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
+      if (savedKey) setApiKey(savedKey);
+
+      // Files from IndexedDB
+      try {
+        const storedFiles = await get<FileSystemItem[]>("APPFORGE_FILES");
+        if (storedFiles && storedFiles.length > 0) {
+          setFiles(storedFiles);
+          // Auto-select first file if current active is not in stored files
+          if (!storedFiles.find(f => f.id === activeFileId)) {
+            const firstFile = storedFiles.find(f => f.type === 'file');
+            if (firstFile) setActiveFileId(firstFile.id);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load files from IndexedDB", err);
+      } finally {
+        setIsFileSystemLoaded(true);
+      }
+    };
+    init();
   }, []);
+
+  // Save files to IndexedDB on change
+  React.useEffect(() => {
+    if (isFileSystemLoaded) {
+      set("APPFORGE_FILES", files).catch(err => {
+        console.error("Failed to save files to IndexedDB", err);
+      });
+    }
+  }, [files, isFileSystemLoaded]);
 
   const saveApiKey = (key: string) => {
     localStorage.setItem("APPFORGE_GEMINI_KEY", key);

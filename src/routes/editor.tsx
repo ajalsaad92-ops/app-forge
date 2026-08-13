@@ -2,15 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileCode, FileJson, Folder, Upload, Download, Hammer, Package } from "lucide-react";
+import { FileCode, FileJson, Folder, Upload, Download, Hammer, Package, File as FileIcon, Loader2 } from "lucide-react";
+import { apkProcessor } from "@/lib/apk-processor";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/editor")({
   component: APKEditor,
 });
+
 
 
 function APKEditor() {
@@ -45,18 +46,27 @@ function APKEditor() {
           <h1 className="text-xl font-bold tracking-tight">APKLab Web Editor</h1>
         </div>
         <div className="flex items-center gap-4">
-          <Button variant="outline" size="sm" onClick={handleUpload} disabled={isUploading}>
-            <Upload className="mr-2 h-4 w-4" />
-            {isUploading ? "Uploading..." : "Upload APK"}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".apk,.zip"
+            className="hidden"
+          />
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => fileInputRef.current?.click()} 
+            disabled={isUploading}
+          >
+            {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+            {isUploading ? "Reading APK..." : "Upload APK"}
           </Button>
-          <Button size="sm" onClick={handleBuild} disabled={isBuilding}>
-            <Hammer className="mr-2 h-4 w-4" />
-            {isBuilding ? "Rebuilding..." : "Build & Sign"}
+          <Button size="sm" onClick={handleBuild} disabled={isBuilding || fileList.length === 0}>
+            {isBuilding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Hammer className="mr-2 h-4 w-4" />}
+            {isBuilding ? "Building..." : "Build & Sign"}
           </Button>
-          <Button size="sm" variant="secondary">
-            <Download className="mr-2 h-4 w-4" />
-            Download APK
-          </Button>
+
         </div>
       </header>
 
@@ -71,21 +81,24 @@ function APKEditor() {
           </div>
           <ScrollArea className="h-full">
             <div className="p-2 space-y-1">
-              {simulatedFiles.map((file) => (
+              {fileList.map((fileName) => (
                 <button
-                  key={file.name}
-                  onClick={() => {
-                    setCurrentFile(file.name);
-                    setFileContent(`<!-- Content for ${file.name} -->\n<resources>\n  <string name="app_name">Modified App</string>\n</resources>`);
-                  }}
+                  key={fileName}
+                  onClick={() => handleFileSelect(fileName)}
                   className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent ${
-                    currentFile === file.name ? "bg-accent" : ""
+                    currentFile === fileName ? "bg-accent" : ""
                   }`}
                 >
-                  {file.icon}
-                  <span className="truncate">{file.name}</span>
+                  {getFileIcon(fileName)}
+                  <span className="truncate">{fileName}</span>
                 </button>
               ))}
+              {fileList.length === 0 && (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  No files loaded
+                </div>
+              )}
+
             </div>
           </ScrollArea>
         </aside>
@@ -100,8 +113,10 @@ function APKEditor() {
               </div>
               <textarea
                 value={fileContent}
-                onChange={(e) => setFileContent(e.target.value)}
-                className="flex-1 p-6 font-mono text-sm resize-none bg-background focus:outline-none"
+                onChange={(e) => handleContentChange(e.target.value)}
+                disabled={currentFile ? apkProcessor.getFileContent(currentFile)?.type === "binary" : true}
+                className="flex-1 p-6 font-mono text-sm resize-none bg-background focus:outline-none disabled:opacity-50"
+
                 spellCheck={false}
               />
             </>
@@ -145,17 +160,18 @@ function APKEditor() {
             </TabsContent>
             <TabsContent value="logs" className="p-4">
               <div className="font-mono text-[10px] space-y-1 bg-black text-green-500 p-4 rounded-md h-[500px] overflow-auto">
-                <p>[INFO] Initializing workspace...</p>
-                {isBuilding && (
-                  <>
-                    <p className="text-blue-400">[BUILD] Running apktool b...</p>
-                    <p>[BUILD] Compiling smali files...</p>
-                    <p>[BUILD] Packaging resources...</p>
-                    <p className="text-yellow-400">[SIGN] Signing APK with uber-apk-signer...</p>
-                    <p className="text-green-400 font-bold">[SUCCESS] APK built successfully.</p>
-                  </>
-                )}
+                {logs.map((log, i) => (
+                  <p key={i} className={
+                    log.includes("[ERROR]") ? "text-red-500" : 
+                    log.includes("[SUCCESS]") ? "text-green-400 font-bold" :
+                    log.includes("[BUILD]") ? "text-blue-400" :
+                    log.includes("[SIGN]") ? "text-yellow-400" : ""
+                  }>
+                    {log}
+                  </p>
+                ))}
               </div>
+
             </TabsContent>
           </Tabs>
         </aside>

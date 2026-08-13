@@ -52,9 +52,15 @@ const SetupStep = ({ title, description, command, link, isCompleted, onToggle }:
     setIsVerifying(true);
     // Ping local backend to verify tool existence
     try {
-      const toolName = title.includes(':') 
-        ? title.split(':')[1]?.trim().split(' ')[0].toLowerCase() || title.toLowerCase()
-        : title.toLowerCase();
+      let toolName = title.toLowerCase();
+      if (title.includes(':')) {
+        const splitTitle = title.split(':');
+        const candidate = splitTitle[1];
+        if (candidate) {
+          toolName = candidate.trim().split(' ')[0].toLowerCase();
+        }
+      }
+
 
 
 

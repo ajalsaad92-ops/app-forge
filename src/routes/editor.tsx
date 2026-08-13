@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import { get, set } from "idb-keyval";
+import { ErrorBoundary } from "react-error-boundary";
+import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
@@ -43,7 +45,11 @@ import {
 import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/editor")({
-  component: AppForgeEditor,
+  component: () => (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <AppForgeEditor />
+    </ErrorBoundary>
+  ),
 });
 
 interface FileSystemItem {

@@ -1,10 +1,13 @@
 import JSZip from "jszip";
 
+export type APKCategory = 'manifest' | 'code' | 'resources' | 'native' | 'config' | 'security' | 'other';
+
 export interface APKFile {
   name: string;
   path: string;
   content: string | Uint8Array;
   type: "text" | "binary";
+  category: APKCategory;
 }
 
 export class APKProcessor {
@@ -16,6 +19,16 @@ export class APKProcessor {
     this.files.clear();
     const fileNames: string[] = [];
 
+    const getCategory = (path: string): APKCategory => {
+      if (path === "AndroidManifest.xml") return 'manifest';
+      if (path.startsWith("smali") || path.endsWith(".dex") || path.startsWith("kotlin/")) return 'code';
+      if (path.startsWith("res/") || path.startsWith("assets/")) return 'resources';
+      if (path.startsWith("lib/")) return 'native';
+      if (path.endsWith(".json") || path.endsWith(".properties") || path.endsWith(".yml") || path.endsWith(".xml")) return 'config';
+      if (path.startsWith("META-INF/")) return 'security';
+      return 'other';
+    };
+
     const entries = Object.keys(this.zip.files);
     for (const name of entries) {
       const entry = this.zip.files[name];
@@ -23,19 +36,21 @@ export class APKProcessor {
 
       fileNames.push(name);
       
-      // Determine if text or binary (simplified)
       const isText = name.endsWith(".xml") || 
                      name.endsWith(".smali") || 
                      name.endsWith(".json") || 
                      name.endsWith(".txt") ||
-                     name.endsWith(".yml");
+                     name.endsWith(".yml") ||
+                     name.endsWith(".properties");
+
+      const category = getCategory(name);
 
       if (isText) {
         const content = await entry.async("string");
-        this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "text" });
+        this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "text", category });
       } else {
         const content = await entry.async("uint8array");
-        this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "binary" });
+        this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "binary", category });
       }
     }
 

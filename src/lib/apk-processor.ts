@@ -109,3 +109,30 @@ export class APKProcessor {
 }
 
 export const apkProcessor = new APKProcessor();
+
+export async function exportToZip(files: any[]): Promise<Blob> {
+  const zip = new JSZip();
+  
+  const addFilesToZip = (items: any[], currentPath = "") => {
+    items.forEach(item => {
+      const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+      if (item.type === 'file') {
+        // Handle binary vs text
+        zip.file(itemPath, item.content || "");
+      } else {
+        const children = files.filter(f => f.parentId === item.id);
+        addFilesToZip(children, itemPath);
+      }
+    });
+  };
+
+  const rootItems = files.filter(f => f.parentId === null);
+  addFilesToZip(rootItems);
+
+  return await zip.generateAsync({ 
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+

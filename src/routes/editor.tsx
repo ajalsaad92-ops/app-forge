@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import { get, set } from "idb-keyval";
-import JSZip from "jszip";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
@@ -31,15 +30,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
-import { analyzeAndRefactorCode, getCodeAction } from "@/lib/gemini";
-import { apkProcessor } from "@/lib/apk-processor";
+import { getCodeAction } from "@/lib/gemini";
+import { apkProcessor, exportToZip } from "@/lib/apk-processor";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -52,7 +50,7 @@ interface FileSystemItem {
   id: string;
   name: string;
   type: 'file' | 'folder';
-  content?: string | undefined;
+  content?: string | Uint8Array | undefined;
   parentId: string | null;
 }
 
@@ -62,6 +60,8 @@ const DEFAULT_FILES: FileSystemItem[] = [
   { id: '3', name: 'utils.ts', type: 'file', content: 'export const add = (a: number, b: number) => a + b;', parentId: '1' },
   { id: '4', name: 'package.json', type: 'file', content: '{\n  "name": "app-forge-project",\n  "version": "1.0.0"\n}', parentId: null },
 ];
+
+const STORAGE_KEY = "APPFORGE_FILES_V2";
 
 function AppForgeEditor() {
   const [files, setFiles] = React.useState<FileSystemItem[]>(DEFAULT_FILES);
@@ -80,20 +80,15 @@ function AppForgeEditor() {
   // Load API Key and Files from storage
   React.useEffect(() => {
     const init = async () => {
-      // API Key
       const savedKey = localStorage.getItem("APPFORGE_GEMINI_KEY");
       if (savedKey) setApiKey(savedKey);
 
-      // Files from IndexedDB
       try {
-        const storedFiles = await get<FileSystemItem[]>("APPFORGE_FILES");
+        const storedFiles = await get<FileSystemItem[]>(STORAGE_KEY);
         if (storedFiles && storedFiles.length > 0) {
           setFiles(storedFiles);
-          // Auto-select first file if current active is not in stored files
-          if (!storedFiles.find(f => f.id === activeFileId)) {
-            const firstFile = storedFiles.find(f => f.type === 'file');
-            if (firstFile) setActiveFileId(firstFile.id);
-          }
+          const firstFile = storedFiles.find(f => f.type === 'file');
+          if (firstFile) setActiveFileId(firstFile.id);
         }
       } catch (err) {
         console.error("Failed to load files from IndexedDB", err);
@@ -107,7 +102,7 @@ function AppForgeEditor() {
   // Save files to IndexedDB on change
   React.useEffect(() => {
     if (isFileSystemLoaded) {
-      set("APPFORGE_FILES", files).catch(err => {
+      set(STORAGE_KEY, files).catch(err => {
         console.error("Failed to save files to IndexedDB", err);
       });
     }
@@ -126,15 +121,13 @@ function AppForgeEditor() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    toast.info(`Extracting ${file.name}...`);
+    const toastId = toast.loading(`Extracting ${file.name}...`);
     try {
       const paths = await apkProcessor.loadAPK(file);
       
-      // Convert flat paths to our FileSystemItem structure
       const newFiles: FileSystemItem[] = [];
-      const folderMap = new Map<string, string>(); // path -> id
+      const folderMap = new Map<string, string>();
 
-      // Recursive folder creator
       const getOrCreateFolder = (path: string): string | null => {
         const parts = path.split('/');
         if (parts.length <= 1) return null;
@@ -143,10 +136,12 @@ function AppForgeEditor() {
         if (folderMap.has(parentPath)) return folderMap.get(parentPath)!;
 
         const grandParentId = getOrCreateFolder(parentPath);
-        const folderId = Math.random().toString(36).substr(2, 9);
+        const folderId = Math.random().toString(36).substring(2, 9);
+        const folderName = parts[parts.length - 2] || "folder";
+        
         newFiles.push({
           id: folderId,
-          name: parts[parts.length - 2] || "folder",
+          name: folderName,
           type: 'folder',
           parentId: grandParentId
         });
@@ -160,10 +155,10 @@ function AppForgeEditor() {
 
         const parentId = getOrCreateFolder(path);
         newFiles.push({
-          id: Math.random().toString(36).substr(2, 9),
+          id: Math.random().toString(36).substring(2, 9),
           name: apkFile.name,
           type: 'file',
-          content: apkFile.type === 'text' ? (apkFile.content as string) : `[Binary File: ${path}]`,
+          content: apkFile.content,
           parentId: parentId
         });
       }
@@ -172,57 +167,28 @@ function AppForgeEditor() {
         setFiles(newFiles);
         const firstFile = newFiles.find(f => f.type === 'file');
         if (firstFile) setActiveFileId(firstFile.id);
-        toast.success("APK extracted successfully");
+        toast.success("File extracted successfully", { id: toastId });
       }
     } catch (err) {
       console.error("Extraction failed", err);
-      toast.error("Failed to extract file");
+      toast.error("Failed to extract file", { id: toastId });
     }
   };
 
   const handleExport = async () => {
-    toast.info("Building export package...");
+    const toastId = toast.loading("Building export package...");
     try {
-      const exportZip = new JSZip();
-      
-      const reconstructPaths = (items: FileSystemItem[], currentPath = ""): {path: string, content: string | Uint8Array}[] => {
-        let results: {path: string, content: string | Uint8Array}[] = [];
-        items.forEach(item => {
-          const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
-          if (item.type === 'file') {
-            let content: string | Uint8Array = item.content || "";
-            if (typeof content === 'string' && content.startsWith('[Binary File:')) {
-              const originalPath = content.match(/\[Binary File: (.*)\]/)?.[1];
-              if (originalPath) {
-                const original = apkProcessor.getFileContent(originalPath);
-                if (original) content = original.content;
-              }
-            }
-            results.push({ path: itemPath, content });
-          } else {
-            const children = files.filter(f => f.parentId === item.id);
-            results = [...results, ...reconstructPaths(children, itemPath)];
-          }
-        });
-        return results;
-      };
-
-      const rootItems = files.filter(f => f.parentId === null);
-      reconstructPaths(rootItems).forEach(file => {
-        exportZip.file(file.path, file.content);
-      });
-
-      const blob = await exportZip.generateAsync({ type: "blob", compression: "DEFLATE" });
+      const blob = await exportToZip(files);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = "app-forge-export.zip";
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Export ready");
+      toast.success("Export ready", { id: toastId });
     } catch (err) {
       console.error("Export failed", err);
-      toast.error("Export failed");
+      toast.error("Export failed", { id: toastId });
     }
   };
 
@@ -237,7 +203,7 @@ function AppForgeEditor() {
     const name = window.prompt("Enter file name:");
     if (!name) return;
     const newFile: FileSystemItem = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: Math.random().toString(36).substring(2, 9),
       name,
       type: 'file',
       content: '// New file',
@@ -266,13 +232,13 @@ function AppForgeEditor() {
   };
 
   const runAnalysis = async () => {
-    if (!activeFile || activeFile.type !== 'file') return;
+    if (!activeFile || activeFile.type !== 'file' || typeof activeFile.content !== 'string') return;
     setIsAnalyzing(true);
     toast.info("Analyzing code...");
     try {
       const result = await analyzeCode({ 
         data: {
-          code: activeFile.content || "", 
+          code: activeFile.content, 
           fileName: activeFile.name 
         }
       });
@@ -296,8 +262,8 @@ function AppForgeEditor() {
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput("");
 
-    if (!activeFile || activeFile.type !== 'file') {
-      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a file first so I can perform actions on it." }]);
+    if (!activeFile || activeFile.type !== 'file' || typeof activeFile.content !== 'string') {
+      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a text file first." }]);
       return;
     }
 
@@ -308,45 +274,42 @@ function AppForgeEditor() {
     }
 
     setIsAnalyzing(true);
-    setChatMessages(prev => [...prev, { role: 'ai', content: "Processing your request..." }]);
+    setChatMessages(prev => [...prev, { role: 'ai', content: "Thinking..." }]);
     
     try {
-      const currentCode = files.find(f => f.id === activeFileId)?.content || "";
+      const currentCode = activeFile.content;
       const actionResult = await getCodeAction(apiKey, currentCode, userMessage);
       
       setPendingCode(actionResult.modifiedCode);
-      setOriginalCode(currentCode); // Diff against the current version from state (synced with IDB)
+      setOriginalCode(currentCode);
       
       setChatMessages(prev => [...prev, { 
         role: 'ai', 
-        content: `${actionResult.explanation}\n\nI have prepared the changes. Would you like to apply them?` 
+        content: `${actionResult.explanation}\n\nReview changes in Diff View.` 
       }]);
       
       setViewMode('diff');
-      toast.info("Changes prepared. Preview in Diff View.");
+      toast.info("AI suggested changes. Review them now.");
     } catch (err: any) {
       setChatMessages(prev => [...prev, { role: 'ai', content: `Error: ${err.message}` }]);
-      toast.error("Action failed");
+      toast.error("AI action failed");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
   const applyChanges = () => {
-    if (!pendingCode || !activeFileId) return;
+    if (pendingCode === null || !activeFileId) return;
     
     const updatedFiles = files.map(f => f.id === activeFileId ? { ...f, content: pendingCode } : f);
     setFiles(updatedFiles);
     
-    // Explicitly persist to IndexedDB immediately to ensure safety
-    set("APPFORGE_FILES", updatedFiles).catch(err => {
-      console.error("Failed to persist changes to IndexedDB", err);
-      toast.error("Code updated in editor, but failed to save to disk.");
-    });
+    // Explicit sync to IndexedDB
+    set(STORAGE_KEY, updatedFiles);
 
     setPendingCode(null);
     setViewMode('editor');
-    toast.success("Changes applied and saved to IndexedDB");
+    toast.success("Changes applied and persisted.");
   };
 
   const discardChanges = () => {
@@ -391,9 +354,11 @@ function AppForgeEditor() {
       ));
   };
 
+  const editorContent = activeFile?.content;
+  const isBinary = activeFile?.type === 'file' && typeof editorContent !== 'string';
+
   return (
     <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans">
-      {/* Sidebar */}
       <aside className="w-64 border-r flex flex-col bg-card/30">
         <div className="p-4 border-b flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-lg">
@@ -403,12 +368,7 @@ function AppForgeEditor() {
           <div className="flex gap-1">
             <label className="p-1 hover:bg-accent rounded cursor-pointer" title="Upload APK/ZIP">
               <Upload className="h-4 w-4" />
-              <input 
-                type="file" 
-                accept=".apk,.zip" 
-                className="hidden" 
-                onChange={handleFileUpload}
-              />
+              <input type="file" accept=".apk,.zip" className="hidden" onChange={handleFileUpload} />
             </label>
             <button onClick={handleExport} className="p-1 hover:bg-accent rounded" title="Export Project">
               <Download className="h-4 w-4" />
@@ -419,17 +379,14 @@ function AppForgeEditor() {
           </div>
         </div>
         <ScrollArea className="flex-1">
-          <div className="py-2">
-            {renderTree(null)}
-          </div>
+          <div className="py-2">{renderTree(null)}</div>
         </ScrollArea>
         <div className="p-4 border-t bg-muted/20 text-[10px] text-muted-foreground uppercase tracking-widest flex items-center gap-2">
           <Terminal className="h-3 w-3" />
-          <span>Workspace Ready</span>
+          <span>Workspace Active</span>
         </div>
       </aside>
 
-      {/* Editor Main */}
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-12 border-b flex items-center justify-between px-4 bg-muted/10 shrink-0">
           <div className="text-sm font-mono text-muted-foreground">
@@ -443,14 +400,13 @@ function AppForgeEditor() {
               className="h-8 px-3"
             >
               {viewMode === 'editor' ? <Split className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
-              {viewMode === 'editor' ? 'Diff View' : 'Editor View'}
+              {viewMode === 'editor' ? 'Diff' : 'Editor'}
             </Button>
             <Button 
               size="sm" 
-              variant="default"
               onClick={runAnalysis}
-              disabled={isAnalyzing || !activeFile}
-              className="h-8 px-3 shadow-lg shadow-primary/20"
+              disabled={isAnalyzing || !activeFile || isBinary}
+              className="h-8 px-3"
             >
               {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
               Analyze
@@ -463,28 +419,30 @@ function AppForgeEditor() {
 
         <div className="flex-1 relative bg-[#1e1e1e]">
           {activeFile ? (
-            viewMode === 'editor' ? (
+            isBinary ? (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+                <FileCode className="h-12 w-12 opacity-20" />
+                <span>Binary file content cannot be edited</span>
+              </div>
+            ) : viewMode === 'editor' ? (
               <Editor
                 height="100%"
                 defaultLanguage="typescript"
                 theme="vs-dark"
-                value={activeFile.content || ""}
+                value={(editorContent as string) || ""}
                 onChange={handleEditorChange}
                 options={{
                   minimap: { enabled: false },
                   fontSize: 14,
                   fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
-                  padding: { top: 20 },
-                  lineNumbers: 'on',
-                  scrollBeyondLastLine: false,
                   automaticLayout: true,
                 }}
               />
             ) : (
               <DiffEditor
                 height="100%"
-                original={originalCode || activeFile.content || ""}
-                modified={pendingCode || activeFile.content || ""}
+                original={originalCode}
+                modified={pendingCode || (editorContent as string) || ""}
                 language="typescript"
                 theme="vs-dark"
                 options={{
@@ -498,46 +456,40 @@ function AppForgeEditor() {
             )
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground italic">
-              Select a file to start forging
+              Select a file to begin
             </div>
           )}
         </div>
 
-      {/* Settings Dialog */}
-      <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Forge Settings</DialogTitle>
-            <DialogDescription>
-              Configure your AI models and API keys. These are stored locally in your browser.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="api-key" className="flex items-center gap-2">
-                <Key className="h-4 w-4" />
-                Google Gemini API Key
-              </Label>
-              <Input
-                id="api-key"
-                type="password"
-                placeholder="Enter your API key..."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground">
-                Get one at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline">AI Studio</a>
-              </p>
+        <Dialog open={showSettings} onOpenChange={setShowSettings}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Forge Settings</DialogTitle>
+              <DialogDescription>
+                Your Gemini API key is stored safely in localStorage.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="api-key" className="flex items-center gap-2">
+                  <Key className="h-4 w-4" /> Gemini API Key
+                </Label>
+                <Input
+                  id="api-key"
+                  type="password"
+                  placeholder="Enter API key..."
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => saveApiKey(apiKey)}>Save Configuration</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button onClick={() => saveApiKey(apiKey)}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
 
-      {/* AI Chat Sidebar */}
       <aside className="w-80 border-l flex flex-col bg-card/30">
         <header className="h-12 border-b flex items-center px-4 bg-muted/10 shrink-0">
           <MessageSquare className="h-4 w-4 mr-2 text-primary" />
@@ -546,29 +498,19 @@ function AppForgeEditor() {
         
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
-            {chatMessages.length === 0 && (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                Ask me anything about your code or trigger an analysis.
-              </div>
-            )}
             {chatMessages.map((msg, i) => (
               <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                 <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                  msg.role === 'user' 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'bg-muted text-foreground border'
+                  msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border'
                 }`}>
                   <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
-                  
                   {msg.role === 'ai' && pendingCode && i === chatMessages.length - 1 && (
                     <div className="flex gap-2 mt-3 pt-2 border-t">
-                      <Button size="sm" variant="default" onClick={applyChanges} className="h-7 text-[10px] px-2">
-                        <Check className="h-3 w-3 mr-1" />
-                        Confirm Apply
+                      <Button size="sm" onClick={applyChanges} className="h-7 text-[10px]">
+                        <Check className="h-3 w-3 mr-1" /> Apply
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={discardChanges} className="h-7 text-[10px] px-2 text-muted-foreground">
-                        <X className="h-3 w-3 mr-1" />
-                        Discard
+                      <Button size="sm" variant="ghost" onClick={discardChanges} className="h-7 text-[10px]">
+                        <X className="h-3 w-3 mr-1" /> Discard
                       </Button>
                     </div>
                   )}
@@ -584,12 +526,9 @@ function AppForgeEditor() {
               placeholder="Ask AI..."
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              className="pr-10 bg-background"
+              className="pr-10"
             />
-            <button 
-              type="submit"
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:text-primary transition-colors"
-            >
+            <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:text-primary">
               <Send className="h-4 w-4" />
             </button>
           </div>

@@ -4,34 +4,6 @@ import { get, set } from "idb-keyval";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
-// مثال على مكان وضعها داخل مكون الـ React
-const handleDecompile = async (file: File) => {
-  try {
-    // 1. إظهار مؤشر التحميل (Loading)
-    setIsLoading(true); 
-    
-    const formData = new FormData();
-    formData.append('apk', file);
-
-    const response = await fetch('http://localhost:3000/api/decompile', {
-      method: 'POST',
-      body: formData,
-    });
-    
-    const data = await response.json();
-    if (data.success) {
-      console.log('تم فك الملفات بنجاح في المسار:', data.outputDir);
-      // هنا يمكنك استدعاء دالة لتحديث شجرة الملفات بالمسار المستخرج
-    } else {
-      alert('فشل فك الـ APK: ' + data.error);
-    }
-  } catch (err) {
-    console.error('خطأ في الاتصال بالخادم المحلي:', err);
-    alert('تأكد من تشغيل الخادم المحلي على پورت 3000');
-  } finally {
-    setIsLoading(false);
-  }
-};
 import { 
   FileCode, 
   FolderPlus, 

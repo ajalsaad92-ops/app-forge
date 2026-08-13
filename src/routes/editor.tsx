@@ -7,9 +7,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   FileCode, FileJson, Folder, Upload, Hammer, Package, 
   File as FileIcon, Loader2, ChevronRight, ChevronDown, 
-  Search, Save, X, Trash2, Edit2, Download
+  Search, Save, X, Trash2, Edit2, Download,
+  Shield, Code, Settings, Image as ImageIcon, Cpu, Layers
 } from "lucide-react";
-import { apkProcessor } from "@/lib/apk-processor";
+import { apkProcessor, type APKCategory } from "@/lib/apk-processor";
 import { toast } from "sonner";
 import { 
   DropdownMenu, 
@@ -27,6 +28,7 @@ interface FileNode {
   name: string;
   path: string;
   type: 'file' | 'directory';
+  category?: APKCategory | undefined;
   children?: FileNode[] | undefined;
 }
 
@@ -40,6 +42,7 @@ function APKEditor() {
   const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = React.useState("");
   const [openFiles, setOpenFiles] = React.useState<string[]>([]);
+  const [activeCategory, setActiveCategory] = React.useState<APKCategory | 'all'>('all');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const addLog = (msg: string) => setLogs(prev => [...prev, msg]);
@@ -57,10 +60,12 @@ function APKEditor() {
         let node: FileNode | undefined = currentLevel.find(n => n.name === part);
 
         if (!node) {
+          const category = apkProcessor.getFileContent(currentPath)?.category;
           node = {
             name: part,
             path: currentPath,
             type: isLastPart ? 'file' : 'directory',
+            category: isLastPart ? category : undefined,
             children: isLastPart ? undefined : []
           };
           currentLevel.push(node);
@@ -172,7 +177,14 @@ function APKEditor() {
 
   const renderFileTree = (nodes: FileNode[]) => {
     return nodes
-      .filter(node => node.name.toLowerCase().includes(searchQuery.toLowerCase()) || (node.children && node.children.length > 0))
+      .filter(node => {
+        const matchesSearch = node.name.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesCategory = activeCategory === 'all' || 
+          (node.type === 'file' && node.category === activeCategory) ||
+          (node.type === 'directory' && node.children?.some(c => c.category === activeCategory || c.type === 'directory'));
+        
+        return (matchesSearch && matchesCategory) || (node.children && node.children.length > 0 && matchesCategory);
+      })
       .map(node => {
         const isExpanded = expandedFolders.has(node.path);
         const isSelected = currentFilePath === node.path;
@@ -270,6 +282,71 @@ function APKEditor() {
         {/* File Explorer */}
         <aside className="w-72 border-r bg-muted/20 flex flex-col shrink-0">
           <div className="p-3 space-y-3">
+            <div className="flex flex-wrap gap-1 mb-2">
+              <Button 
+                variant={activeCategory === 'all' ? 'default' : 'ghost'} 
+                size="icon" 
+                className="h-7 w-7" 
+                onClick={() => setActiveCategory('all')}
+                title="All Files"
+              >
+                <Layers className="h-3.5 w-3.5" />
+              </Button>
+              <Button 
+                variant={activeCategory === 'manifest' ? 'default' : 'ghost'} 
+                size="icon" 
+                className="h-7 w-7" 
+                onClick={() => setActiveCategory('manifest')}
+                title="Manifest"
+              >
+                <FileCode className="h-3.5 w-3.5" />
+              </Button>
+              <Button 
+                variant={activeCategory === 'code' ? 'default' : 'ghost'} 
+                size="icon" 
+                className="h-7 w-7" 
+                onClick={() => setActiveCategory('code')}
+                title="Code"
+              >
+                <Code className="h-3.5 w-3.5" />
+              </Button>
+              <Button 
+                variant={activeCategory === 'resources' ? 'default' : 'ghost'} 
+                size="icon" 
+                className="h-7 w-7" 
+                onClick={() => setActiveCategory('resources')}
+                title="Resources"
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+              </Button>
+              <Button 
+                variant={activeCategory === 'security' ? 'default' : 'ghost'} 
+                size="icon" 
+                className="h-7 w-7" 
+                onClick={() => setActiveCategory('security')}
+                title="Security/Certs"
+              >
+                <Shield className="h-3.5 w-3.5" />
+              </Button>
+              <Button 
+                variant={activeCategory === 'native' ? 'default' : 'ghost'} 
+                size="icon" 
+                className="h-7 w-7" 
+                onClick={() => setActiveCategory('native')}
+                title="Native Libs"
+              >
+                <Cpu className="h-3.5 w-3.5" />
+              </Button>
+              <Button 
+                variant={activeCategory === 'config' ? 'default' : 'ghost'} 
+                size="icon" 
+                className="h-7 w-7" 
+                onClick={() => setActiveCategory('config')}
+                title="Settings/Config"
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </Button>
+            </div>
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <Input

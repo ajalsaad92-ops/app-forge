@@ -7,16 +7,13 @@ export const createAPKProject = createServerFn({ method: "POST" })
     name: z.string(),
     packageName: z.string().optional()
   }).parse(data))
-  .handler(async ({ data, context }) => {
-    // Note: In a real app, we'd get the user from the session
-    // For this prototype, we'll use a placeholder or handle auth in middleware
-    
+  .handler(async ({ data }) => {
     const { data: project, error } = await supabaseAdmin
       .from("apk_projects")
       .insert({
         name: data.name,
-        package_name: data.packageName,
-        user_id: "00000000-0000-0000-0000-000000000000", // Placeholder
+        package_name: data.packageName ?? null,
+        user_id: "00000000-0000-0000-0000-000000000000", // Placeholder for prototype
       })
       .select()
       .single();

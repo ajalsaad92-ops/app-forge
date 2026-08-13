@@ -116,9 +116,10 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
   }, []);
 
   React.useEffect(() => {
+    let interval: any;
     if (open) {
       checkHealth();
-      const interval = setInterval(checkHealth, 5000);
+      interval = setInterval(checkHealth, 5000);
       
       const saved = localStorage.getItem('APPFORGE_SETUP_PROGRESS');
       if (saved) {
@@ -128,9 +129,12 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
           console.error("Failed to parse setup progress", e);
         }
       }
-      return () => clearInterval(interval);
     }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [open, checkHealth]);
+
 
   const toggleStep = (id: string) => {
     const next = { ...completedSteps, [id]: !completedSteps[id] };

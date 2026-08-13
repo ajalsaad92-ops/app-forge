@@ -50,7 +50,7 @@ interface FileSystemItem {
   id: string;
   name: string;
   type: 'file' | 'folder';
-  content?: string | Uint8Array;
+  content?: string | Uint8Array | undefined;
   parentId: string | null;
 }
 

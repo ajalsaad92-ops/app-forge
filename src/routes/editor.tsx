@@ -25,7 +25,8 @@ import {
   X,
   Edit2,
   Upload,
-  Download
+  Download,
+  Search
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -80,8 +81,10 @@ const STORAGE_KEY = "APPFORGE_FILES_V2";
 function AppForgeEditor() {
   const [files, setFiles] = React.useState<FileSystemItem[]>(DEFAULT_FILES);
   const [activeFileId, setActiveFileId] = React.useState<string>('2');
+  const [searchQuery, setSearchQuery] = React.useState("");
   const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set(['1']));
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [isBackendLoading, setIsBackendLoading] = React.useState<{[key: string]: boolean}>({});
   const [chatMessages, setChatMessages] = React.useState<{role: 'user' | 'ai', content: string}[]>([]);
   const [chatInput, setChatInput] = React.useState("");
   const [viewMode, setViewMode] = React.useState<'editor' | 'diff'>('editor');
@@ -322,9 +325,12 @@ function AppForgeEditor() {
     setChatInput("");
 
     if (!activeFile || activeFile.type !== 'file' || typeof activeFile.content !== 'string') {
-      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a text file first." }]);
+      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a text file for the AI to analyze." }]);
+      toast.error("Please select a text file for the AI to analyze.");
       return;
     }
+    const context = `The user is currently viewing this file: ${activeFile.name}. File Content: \n ${activeFile.content}. Answer their question based strictly on this file.`;
+    const prompt = `${context}\n\nUser Question: ${userMessage}`;
 
     if (!aiSettings.apiKey) {
       setChatMessages(prev => [...prev, { role: 'ai', content: `Please configure your ${aiSettings.provider} API Key in settings first.` }]);
@@ -337,7 +343,7 @@ function AppForgeEditor() {
     
     try {
       const currentCode = activeFile.content;
-      const actionResult = await getCodeAction(aiSettings, currentCode, userMessage);
+      const actionResult = await getCodeAction(aiSettings, currentCode, prompt);
       
       setPendingCode(actionResult.modifiedCode);
       setOriginalCode(currentCode);
@@ -385,12 +391,31 @@ function AppForgeEditor() {
   };
 
   const renderTree = (parentId: string | null, level = 0) => {
-    return files
-      .filter(f => f.parentId === parentId)
-      .map(item => (
+    const filteredFiles = files.filter(f => {
+      if (f.parentId !== parentId) return false;
+      if (!searchQuery) return true;
+      
+      // If searching, show if name matches OR if it has children that match
+      const nameMatches = f.name.toLowerCase().includes(searchQuery.toLowerCase());
+      if (nameMatches) return true;
+      
+      if (f.type === 'folder') {
+        const hasMatchingChild = (fid: string): boolean => {
+          return files.some(child => 
+            child.parentId === fid && 
+            (child.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+             (child.type === 'folder' && hasMatchingChild(child.id)))
+          );
+        };
+        return hasMatchingChild(f.id);
+      }
+      return false;
+    });
+
+    return filteredFiles.map(item => (
         <div key={item.id} className="select-none">
           <div 
-            className={`flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-accent/50 group ${activeFileId === item.id ? 'bg-accent text-accent-foreground' : ''}`}
+            className={`flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-slate-800 group ${activeFileId === item.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400'}`}
             style={{ paddingLeft: `${level * 12 + 8}px` }}
             onClick={() => item.type === 'folder' ? toggleFolder(item.id) : setActiveFileId(item.id)}
           >
@@ -427,47 +452,103 @@ function AppForgeEditor() {
     BINARY_EXTENSIONS.some(ext => activeFile.name.toLowerCase().endsWith(ext))
   );
 
+  const callBackend = async (endpoint: string, label: string) => {
+    setIsBackendLoading(prev => ({ ...prev, [label]: true }));
+    try {
+      const response = await fetch(`http://localhost:3000/api/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        toast.success(`${label} successful`);
+      } else {
+        toast.error(`${label} failed: ${response.statusText}`);
+      }
+    } catch (err) {
+      toast.error(`Local backend not found at http://localhost:3000`);
+      console.error(err);
+    } finally {
+      setIsBackendLoading(prev => ({ ...prev, [label]: false }));
+    }
+  };
+
   return (
-    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans">
-      <aside className="w-64 border-r flex flex-col bg-card/30">
-        <div className="p-4 border-b flex items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-lg">
+    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans dark">
+      <aside className="w-64 border-r flex flex-col bg-sidebar/50 backdrop-blur-sm">
+        <div className="p-4 border-b flex items-center justify-between bg-muted/20">
+          <div className="flex items-center gap-2 font-bold text-lg text-slate-100">
             <Code2 className="h-5 w-5 text-primary" />
             <span>App-Forge</span>
           </div>
           <div className="flex gap-1">
-            <label className="p-1 hover:bg-accent rounded cursor-pointer" title="Upload APK/ZIP">
+            <label className="p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-400 hover:text-slate-100" title="Upload APK/ZIP">
               <Upload className="h-4 w-4" />
               <input type="file" accept=".apk,.zip" className="hidden" onChange={handleFileUpload} />
             </label>
-            <button onClick={handleExport} className="p-1 hover:bg-accent rounded" title="Export Project">
+            <button onClick={handleExport} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-100" title="Export Project">
               <Download className="h-4 w-4" />
             </button>
-            <button onClick={() => addFile(null)} className="p-1 hover:bg-accent rounded" title="New File">
+            <button onClick={() => addFile(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-100" title="New File">
               <FilePlus className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <ScrollArea className="flex-1">
+        <div className="px-4 py-2 border-b bg-slate-900/50">
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Search files..." 
+              className="pl-8 h-9 bg-slate-800 border-slate-700 focus-visible:ring-primary/50 text-slate-100"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+        <ScrollArea className="flex-1 bg-slate-900/30">
           <div className="py-2">{renderTree(null)}</div>
         </ScrollArea>
-        <div className="p-4 border-t bg-muted/20 text-[10px] text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+        <div className="p-4 border-t bg-slate-800/50 text-[10px] text-muted-foreground uppercase tracking-widest flex items-center gap-2">
           <Terminal className="h-3 w-3" />
           <span>Workspace Active</span>
         </div>
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-12 border-b flex items-center justify-between px-4 bg-muted/10 shrink-0">
-          <div className="text-sm font-mono text-muted-foreground">
-            {activeFile ? activeFile.name : 'No file selected'}
+        <header className="h-12 border-b flex items-center justify-between px-4 bg-muted/20 shrink-0">
+          <div className="flex items-center gap-4">
+            <div className="text-sm font-mono text-muted-foreground">
+              {activeFile ? activeFile.name : 'No file selected'}
+            </div>
+            <div className="h-4 w-[1px] bg-border mx-2" />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => callBackend('decompile', 'Decompile')}
+                disabled={isBackendLoading['Decompile']}
+                className="h-8 px-3 text-xs bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
+              >
+                {isBackendLoading['Decompile'] ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Play className="mr-2 h-3 w-3" />}
+                Decompile APK
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => callBackend('build', 'Build')}
+                disabled={isBackendLoading['Build']}
+                className="h-8 px-3 text-xs bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
+              >
+                {isBackendLoading['Build'] ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <ShieldCheck className="mr-2 h-3 w-3" />}
+                Rebuild & Sign APK
+              </Button>
+            </div>
           </div>
           <div className="flex gap-2">
             <Button
               size="sm"
               variant="outline"
               onClick={() => setViewMode(viewMode === 'editor' ? 'diff' : 'editor')}
-              className="h-8 px-3"
+              className="h-8 px-3 border-muted bg-muted/20 text-foreground hover:bg-muted/40"
             >
               {viewMode === 'editor' ? <Split className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
               {viewMode === 'editor' ? 'Diff' : 'Editor'}
@@ -477,7 +558,7 @@ function AppForgeEditor() {
               variant="outline"
               onClick={runMetaAudit}
               disabled={isAnalyzing || isBinary}
-              className="h-8 px-3 text-xs"
+              className="h-8 px-3 text-xs border-muted bg-muted/20 text-foreground hover:bg-muted/40"
             >
               <ShieldCheck className="mr-2 h-4 w-4" />
               Audit Source
@@ -486,12 +567,12 @@ function AppForgeEditor() {
               size="sm" 
               onClick={runAnalysis}
               disabled={isAnalyzing || !activeFile || isBinary}
-              className="h-8 px-3"
+              className="h-8 px-3 bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
               Analyze
             </Button>
-            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setShowSettings(true)}>
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => setShowSettings(true)}>
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -548,10 +629,10 @@ function AppForgeEditor() {
         </div>
 
         <Dialog open={showSettings} onOpenChange={setShowSettings}>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[425px] bg-slate-900 border-slate-700 text-slate-100">
             <DialogHeader>
               <DialogTitle>Forge AI Settings</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="text-slate-400">
                 Configure your preferred AI provider and API keys.
               </DialogDescription>
             </DialogHeader>
@@ -562,10 +643,10 @@ function AppForgeEditor() {
                   value={aiSettings.provider} 
                   onValueChange={(v: AIProvider) => setAiSettings({...aiSettings, provider: v})}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="bg-slate-800 border-slate-700">
                     <SelectValue placeholder="Select provider" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-slate-800 border-slate-700 text-slate-100">
                     <SelectItem value="gemini">Google Gemini</SelectItem>
                     <SelectItem value="groq">Groq (Llama 3)</SelectItem>
                     <SelectItem value="siliconflow">SiliconFlow (Qwen/DeepSeek)</SelectItem>
@@ -590,6 +671,7 @@ function AppForgeEditor() {
                   placeholder={`Enter ${aiSettings.provider} API key...`}
                   value={aiSettings.apiKey}
                   onChange={(e) => setAiSettings({...aiSettings, apiKey: e.target.value})}
+                  className="bg-slate-800 border-slate-700 text-slate-100 focus-visible:ring-primary/50"
                 />
               </div>
             </div>
@@ -600,18 +682,18 @@ function AppForgeEditor() {
         </Dialog>
       </main>
 
-      <aside className="w-80 border-l flex flex-col bg-card/30">
-        <header className="h-12 border-b flex items-center px-4 bg-muted/10 shrink-0">
+      <aside className="w-80 border-l flex flex-col bg-sidebar/50 backdrop-blur-sm">
+        <header className="h-12 border-b flex items-center px-4 bg-muted/20 shrink-0">
           <MessageSquare className="h-4 w-4 mr-2 text-primary" />
-          <span className="text-sm font-semibold">AI Assistant</span>
+          <span className="text-sm font-semibold text-slate-100">AI Assistant</span>
         </header>
         
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="flex-1 p-4 bg-slate-900/50">
           <div className="space-y-4">
             {chatMessages.map((msg, i) => (
               <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                 <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                  msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border'
+                  msg.role === 'user' ? 'bg-primary text-primary-foreground shadow-lg' : 'bg-slate-800 border-slate-700 text-slate-100 shadow-md'
                 }`}>
                   <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
                   {msg.role === 'ai' && pendingCode && i === chatMessages.length - 1 && (
@@ -630,13 +712,13 @@ function AppForgeEditor() {
           </div>
         </ScrollArea>
 
-        <form onSubmit={sendChatMessage} className="p-4 border-t bg-muted/5">
+        <form onSubmit={sendChatMessage} className="p-4 border-t bg-slate-800/80 backdrop-blur-sm">
           <div className="relative">
             <Input 
-              placeholder="Ask AI..."
+              placeholder="Ask AI about this file..."
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              className="pr-10"
+              className="pr-10 bg-slate-900 border-slate-700 focus-visible:ring-primary/50 text-slate-100"
             />
             <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:text-primary">
               <Send className="h-4 w-4" />

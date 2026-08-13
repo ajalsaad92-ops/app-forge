@@ -305,18 +305,17 @@ function AppForgeEditor() {
     }
 
     setIsAnalyzing(true);
-    const toastId = toast.loading("Performing Meta-Audit on App-Forge source...");
+    const toastId = toast.loading("Analyzing App-Forge architecture...");
     try {
-      // Pick some core files for context
-
       const auditResult = await auditCodebase(aiSettings);
 
       setChatMessages(prev => [...prev, { 
         role: 'ai', 
-        content: `### 🛡️ App-Forge Meta-Audit Results\n\n${auditResult}` 
+        content: `### 🛠️ App-Forge Meta-Audit\n\n${auditResult}` 
       }]);
-      toast.success("Meta-Audit complete", { id: toastId });
+      toast.success("Audit complete", { id: toastId });
     } catch (err: any) {
+
       toast.error(`Audit failed: ${err.message}`, { id: toastId });
     } finally {
       setIsAnalyzing(false);

@@ -14,7 +14,83 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      apk_files: {
+        Row: {
+          content: string | null
+          created_at: string | null
+          file_path: string
+          id: string
+          is_modified: boolean | null
+          project_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string | null
+          file_path: string
+          id?: string
+          is_modified?: boolean | null
+          project_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          content?: string | null
+          created_at?: string | null
+          file_path?: string
+          id?: string
+          is_modified?: boolean | null
+          project_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "apk_files_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "apk_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      apk_projects: {
+        Row: {
+          created_at: string | null
+          id: string
+          modified_apk_url: string | null
+          name: string
+          original_apk_url: string | null
+          package_name: string | null
+          status: string | null
+          updated_at: string | null
+          user_id: string
+          version_code: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          modified_apk_url?: string | null
+          name: string
+          original_apk_url?: string | null
+          package_name?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+          version_code?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          modified_apk_url?: string | null
+          name?: string
+          original_apk_url?: string | null
+          package_name?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+          version_code?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

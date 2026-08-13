@@ -474,7 +474,29 @@ function APKEditor() {
               <div className="bg-primary/5 rounded-lg p-4 border border-primary/10 space-y-3">
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Quick Actions</h4>
                 <div className="grid grid-cols-1 gap-2">
-                   <Button variant="secondary" size="sm" className="w-full justify-start h-8 text-xs" disabled={!fileTree.length}>
+                   <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    className="w-full justify-start h-8 text-xs" 
+                    disabled={!fileTree.length || isBuilding}
+                    onClick={async () => {
+                      try {
+                        addLog("[INFO] Exporting source as ZIP...");
+                        const blob = await apkProcessor.rebuildAPK();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "apk_source_export.zip";
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        addLog("[SUCCESS] Source exported successfully");
+                        toast.success("Source exported as ZIP");
+                      } catch (err) {
+                        addLog(`[ERROR] Export failed: ${err instanceof Error ? err.message : String(err)}`);
+                        toast.error("Export failed");
+                      }
+                    }}
+                   >
                      <Download className="h-3.5 w-3.5 mr-2" /> Export Source
                    </Button>
                    <Button variant="secondary" size="sm" className="w-full justify-start h-8 text-xs" disabled={!fileTree.length}>

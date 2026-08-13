@@ -138,6 +138,7 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
     localStorage.setItem('APPFORGE_SETUP_PROGRESS', JSON.stringify(next));
   };
 
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl bg-slate-900 border-slate-800 text-slate-100">

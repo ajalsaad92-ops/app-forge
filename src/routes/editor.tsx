@@ -30,7 +30,7 @@ interface FileSystemItem {
   id: string;
   name: string;
   type: 'file' | 'folder';
-  content?: string;
+  content?: string | undefined;
   parentId: string | null;
 }
 
@@ -90,8 +90,10 @@ function AppForgeEditor() {
     toast.info("Analyzing code...");
     try {
       const result = await analyzeCode({ 
-        code: activeFile.content || "", 
-        fileName: activeFile.name 
+        data: {
+          code: activeFile.content || "", 
+          fileName: activeFile.name 
+        }
       });
       setChatMessages(prev => [...prev, { 
         role: 'ai', 
@@ -199,7 +201,7 @@ function AppForgeEditor() {
               height="100%"
               defaultLanguage="typescript"
               theme="vs-dark"
-              value={activeFile.content}
+              value={activeFile.content || ""}
               onChange={handleEditorChange}
               options={{
                 minimap: { enabled: false },

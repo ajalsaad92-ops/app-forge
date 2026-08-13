@@ -18,7 +18,7 @@ export class APKProcessor {
     const entries = Object.keys(this.zip.files);
     for (const name of entries) {
       const entry = this.zip.files[name];
-      if (entry.dir) continue;
+      if (!entry || entry.dir) continue;
 
       fileNames.push(name);
       

@@ -65,7 +65,7 @@ function APKEditor() {
           };
           currentLevel.push(node);
         }
-        if (node.children) {
+        if (node && node.children) {
           currentLevel = node.children;
         }
       });
@@ -127,7 +127,8 @@ function APKEditor() {
     const newOpenFiles = openFiles.filter(f => f !== path);
     setOpenFiles(newOpenFiles);
     if (currentFilePath === path) {
-      setCurrentFilePath(newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null);
+      const nextFile = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
+      setCurrentFilePath(nextFile);
     }
   };
 

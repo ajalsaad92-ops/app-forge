@@ -474,39 +474,39 @@ function AppForgeEditor() {
   return (
     <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans dark">
       <aside className="w-64 border-r flex flex-col bg-sidebar/50 backdrop-blur-sm">
-        <div className="p-4 border-b flex items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-lg">
+        <div className="p-4 border-b flex items-center justify-between bg-muted/20">
+          <div className="flex items-center gap-2 font-bold text-lg text-slate-100">
             <Code2 className="h-5 w-5 text-primary" />
             <span>App-Forge</span>
           </div>
           <div className="flex gap-1">
-            <label className="p-1 hover:bg-accent rounded cursor-pointer" title="Upload APK/ZIP">
+            <label className="p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-400 hover:text-slate-100" title="Upload APK/ZIP">
               <Upload className="h-4 w-4" />
               <input type="file" accept=".apk,.zip" className="hidden" onChange={handleFileUpload} />
             </label>
-            <button onClick={handleExport} className="p-1 hover:bg-accent rounded" title="Export Project">
+            <button onClick={handleExport} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-100" title="Export Project">
               <Download className="h-4 w-4" />
             </button>
-            <button onClick={() => addFile(null)} className="p-1 hover:bg-accent rounded" title="New File">
+            <button onClick={() => addFile(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-100" title="New File">
               <FilePlus className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <div className="px-4 py-2 border-b">
+        <div className="px-4 py-2 border-b bg-slate-900/50">
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input 
               placeholder="Search files..." 
-              className="pl-8 h-9 bg-muted/50 border-muted focus-visible:ring-primary/50"
+              className="pl-8 h-9 bg-slate-800 border-slate-700 focus-visible:ring-primary/50 text-slate-100"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
         </div>
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 bg-slate-900/30">
           <div className="py-2">{renderTree(null)}</div>
         </ScrollArea>
-        <div className="p-4 border-t bg-muted/20 text-[10px] text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+        <div className="p-4 border-t bg-slate-800/50 text-[10px] text-muted-foreground uppercase tracking-widest flex items-center gap-2">
           <Terminal className="h-3 w-3" />
           <span>Workspace Active</span>
         </div>

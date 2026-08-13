@@ -48,13 +48,13 @@ function APKEditor() {
     const root: FileNode[] = [];
     filePaths.forEach(path => {
       const parts = path.split('/');
-      let currentLevel = root;
+      let currentLevel: FileNode[] = root;
       let currentPath = '';
 
       parts.forEach((part, index) => {
         currentPath = currentPath ? `${currentPath}/${part}` : part;
         const isLastPart = index === parts.length - 1;
-        let node = currentLevel.find(n => n.name === part);
+        let node: FileNode | undefined = currentLevel.find(n => n.name === part);
 
         if (!node) {
           node = {
@@ -65,7 +65,8 @@ function APKEditor() {
           };
           currentLevel.push(node);
         }
-        if (node && node.children) {
+        
+        if (node && node.type === 'directory' && node.children) {
           currentLevel = node.children;
         }
       });
@@ -127,7 +128,7 @@ function APKEditor() {
     const newOpenFiles = openFiles.filter(f => f !== path);
     setOpenFiles(newOpenFiles);
     if (currentFilePath === path) {
-      const nextFile: string | null = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
+      const nextFile: string | null = newOpenFiles.length > 0 ? (newOpenFiles[newOpenFiles.length - 1] ?? null) : null;
       setCurrentFilePath(nextFile);
     }
   };

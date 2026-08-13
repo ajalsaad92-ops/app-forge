@@ -311,11 +311,11 @@ function AppForgeEditor() {
     setChatMessages(prev => [...prev, { role: 'ai', content: "Processing your request..." }]);
     
     try {
-      const currentCode = activeFile.content || "";
+      const currentCode = files.find(f => f.id === activeFileId)?.content || "";
       const actionResult = await getCodeAction(apiKey, currentCode, userMessage);
       
       setPendingCode(actionResult.modifiedCode);
-      setOriginalCode(currentCode);
+      setOriginalCode(currentCode); // Diff against the current version from state (synced with IDB)
       
       setChatMessages(prev => [...prev, { 
         role: 'ai', 
@@ -335,10 +335,18 @@ function AppForgeEditor() {
   const applyChanges = () => {
     if (!pendingCode || !activeFileId) return;
     
-    setFiles(files.map(f => f.id === activeFileId ? { ...f, content: pendingCode } : f));
+    const updatedFiles = files.map(f => f.id === activeFileId ? { ...f, content: pendingCode } : f);
+    setFiles(updatedFiles);
+    
+    // Explicitly persist to IndexedDB immediately to ensure safety
+    set("APPFORGE_FILES", updatedFiles).catch(err => {
+      console.error("Failed to persist changes to IndexedDB", err);
+      toast.error("Code updated in editor, but failed to save to disk.");
+    });
+
     setPendingCode(null);
     setViewMode('editor');
-    toast.success("Changes applied successfully");
+    toast.success("Changes applied and saved to IndexedDB");
   };
 
   const discardChanges = () => {

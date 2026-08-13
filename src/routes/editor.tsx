@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import { get, set } from "idb-keyval";
+import { ErrorBoundary } from "react-error-boundary";
+import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
@@ -43,7 +45,11 @@ import {
 import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/editor")({
-  component: AppForgeEditor,
+  component: () => (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <AppForgeEditor />
+    </ErrorBoundary>
+  ),
 });
 
 interface FileSystemItem {
@@ -125,6 +131,12 @@ function AppForgeEditor() {
     try {
       const paths = await apkProcessor.loadAPK(file);
       
+      // Cleanup: memory management for large APKs
+      // We are about to map the entire APK to our files state
+      // This is a memory-heavy operation. 
+      // Using a temporary Set to avoid duplicates if any
+      const pathSet = new Set(paths);
+      
       const newFiles: FileSystemItem[] = [];
       const folderMap = new Map<string, string>();
 
@@ -149,7 +161,7 @@ function AppForgeEditor() {
         return folderId;
       };
 
-      for (const path of paths) {
+      for (const path of Array.from(pathSet)) {
         const apkFile = apkProcessor.getFileContent(path);
         if (!apkFile) continue;
 

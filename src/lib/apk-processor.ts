@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import pLimit from "p-limit";
 
 export type APKCategory = 'manifest' | 'code' | 'resources' | 'native' | 'config' | 'security' | 'other';
 
@@ -18,6 +19,7 @@ export class APKProcessor {
     this.zip = await JSZip.loadAsync(file);
     this.files.clear();
     const fileNames: string[] = [];
+    const limit = pLimit(5); 
 
     const getCategory = (path: string): APKCategory => {
       if (path === "AndroidManifest.xml") return 'manifest';
@@ -30,30 +32,38 @@ export class APKProcessor {
     };
 
     const entries = Object.keys(this.zip.files);
-    for (const name of entries) {
-      const entry = this.zip.files[name];
-      if (!entry || entry.dir) continue;
+    
+    const loadPromises = entries.map((name) => 
+      limit(async () => {
+        const entry = this.zip!.files[name];
+        if (!entry || entry.dir) return;
 
-      fileNames.push(name);
-      
-      const isText = name.endsWith(".xml") || 
-                     name.endsWith(".smali") || 
-                     name.endsWith(".json") || 
-                     name.endsWith(".txt") ||
-                     name.endsWith(".yml") ||
-                     name.endsWith(".properties");
+        fileNames.push(name);
+        
+        const isText = name.endsWith(".xml") || 
+                       name.endsWith(".smali") || 
+                       name.endsWith(".json") || 
+                       name.endsWith(".txt") ||
+                       name.endsWith(".yml") ||
+                       name.endsWith(".properties");
 
-      const category = getCategory(name);
+        const category = getCategory(name);
 
-      if (isText) {
-        const content = await entry.async("string");
-        this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "text", category });
-      } else {
-        const content = await entry.async("uint8array");
-        this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "binary", category });
-      }
-    }
+        try {
+          if (isText) {
+            const content = await entry.async("string");
+            this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "text", category });
+          } else {
+            const content = await entry.async("uint8array");
+            this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "binary", category });
+          }
+        } catch (err) {
+          console.error(`Failed to load entry ${name}:`, err);
+        }
+      })
+    );
 
+    await Promise.all(loadPromises);
     return fileNames;
   }
 
@@ -117,7 +127,6 @@ export async function exportToZip(files: any[]): Promise<Blob> {
     items.forEach(item => {
       const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
       if (item.type === 'file') {
-        // Handle binary vs text
         zip.file(itemPath, item.content || "");
       } else {
         const children = files.filter(f => f.parentId === item.id);
@@ -135,4 +144,3 @@ export async function exportToZip(files: any[]): Promise<Blob> {
     compressionOptions: { level: 6 }
   });
 }
-

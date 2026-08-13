@@ -19,9 +19,9 @@ function Index() {
               Analyze and manage your Android application projects.
             </p>
           </div>
-          <button className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors">
-            Upload APK
-          </button>
+          <a href="/editor" className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors">
+            Open APK Editor
+          </a>
         </header>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

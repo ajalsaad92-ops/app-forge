@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,13 @@ export const Route = createFileRoute("/editor")({
   component: APKEditor,
 });
 
+
 function APKEditor() {
-  const [isUploading, setIsUploading] = useState(false);
-  const [isBuilding, setIsBuilding] = useState(false);
-  const [currentFile, setCurrentFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState("");
+  const [isUploading, setIsUploading] = React.useState(false);
+  const [isBuilding, setIsBuilding] = React.useState(false);
+  const [currentFile, setCurrentFile] = React.useState<string | null>(null);
+  const [fileContent, setFileContent] = React.useState("");
+
 
   const simulatedFiles = [
     { name: "AndroidManifest.xml", icon: <FileCode className="h-4 w-4" /> },

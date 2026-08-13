@@ -182,16 +182,36 @@ function AppForgeEditor() {
   const handleExport = async () => {
     toast.info("Building export package...");
     try {
-      // Update apkProcessor with current state of text files
-      files.forEach(f => {
-        if (f.type === 'file' && f.content && !f.content.startsWith('[Binary File:')) {
-          // We need the original path which we don't store in FileSystemItem 
-          // For simplicity in this tool, we assume paths are reconstructed or were tracked
-          // In a real IDE we'd store path in FileSystemItem
-        }
+      const exportZip = new JSZip();
+      
+      const reconstructPaths = (items: FileSystemItem[], currentPath = ""): {path: string, content: string | Uint8Array}[] => {
+        let results: {path: string, content: string | Uint8Array}[] = [];
+        items.forEach(item => {
+          const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+          if (item.type === 'file') {
+            let content: string | Uint8Array = item.content || "";
+            if (typeof content === 'string' && content.startsWith('[Binary File:')) {
+              const originalPath = content.match(/\[Binary File: (.*)\]/)?.[1];
+              if (originalPath) {
+                const original = apkProcessor.getFileContent(originalPath);
+                if (original) content = original.content;
+              }
+            }
+            results.push({ path: itemPath, content });
+          } else {
+            const children = files.filter(f => f.parentId === item.id);
+            results = [...results, ...reconstructPaths(children, itemPath)];
+          }
+        });
+        return results;
+      };
+
+      const rootItems = files.filter(f => f.parentId === null);
+      reconstructPaths(rootItems).forEach(file => {
+        exportZip.file(file.path, file.content);
       });
 
-      const blob = await apkProcessor.rebuildAPK();
+      const blob = await exportZip.generateAsync({ type: "blob", compression: "DEFLATE" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -200,6 +220,7 @@ function AppForgeEditor() {
       URL.revokeObjectURL(url);
       toast.success("Export ready");
     } catch (err) {
+      console.error("Export failed", err);
       toast.error("Export failed");
     }
   };

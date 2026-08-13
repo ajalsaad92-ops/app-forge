@@ -1,5 +1,5 @@
 import "./lib/error-capture";
-import express from 'express';
+import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction } from 'express';
 import multer from 'multer';
 import { exec } from 'child_process';
 import path from 'path';
@@ -15,14 +15,18 @@ const upload = multer({ dest: 'uploads/' });
 app.use(express.json());
 
 // ==========================================
-// مسارات معالجة الـ APK (الخادم المحلي)
+// Local APK Processing Routes
 // ==========================================
 
-// مسار فك الـ APK
-app.post('/api/decompile', upload.single('apk'), async (req, res) => {
+app.get('/api/health', (_req: ExpressRequest, res: ExpressResponse) => {
+  res.json({ status: 'ok', server: 'App-Forge Local Backend' });
+});
+
+app.post('/api/decompile', upload.single('apk'), async (req: ExpressRequest, res: ExpressResponse) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No APK file uploaded' });
+      res.status(400).json({ error: 'No APK file uploaded' });
+      return;
     }
 
     const apkPath = req.file.path;
@@ -41,20 +45,19 @@ app.post('/api/decompile', upload.single('apk'), async (req, res) => {
   }
 });
 
-// مسار إعادة تجميع وتوقيع الـ APK
-app.post('/api/build', async (req, res) => {
+app.post('/api/build', async (req: ExpressRequest, res: ExpressResponse) => {
   try {
     const { sourceDir } = req.body;
     if (!sourceDir || !fs.existsSync(sourceDir)) {
-      return res.status(400).json({ error: 'Invalid source directory' });
+      res.status(400).json({ error: 'Invalid source directory' });
+      return;
     }
 
     const rebuiltApk = path.join(sourceDir, '../dist_rebuilt.apk');
     await execPromise(`apktool b "${sourceDir}" -o "${rebuiltApk}"`);
 
     const signedApk = path.join(sourceDir, '../dist_signed.apk');
-    // ملاحظة لمستخدمي ويندوز: مسار debug.keystore الافتراضي غالباً في مجلد المستخدم C:\Users\اسم_المستخدم\.android\debug.keystore
-    const keystorePath = path.join(process.env.USERPROFILE || '', '.android', 'debug.keystore');
+    const keystorePath = path.join(process.env['USERPROFILE'] || '', '.android', 'debug.keystore');
     
     await execPromise(`apksigner sign --ks "${keystorePath}" --ks-pass pass:android --key-pass pass:android --out "${signedApk}" "${rebuiltApk}"`);
 
@@ -69,11 +72,11 @@ app.post('/api/build', async (req, res) => {
 });
 
 // ==========================================
-// دمج تطبيق الـ SSR (TanStack Start) مع Express
+// SSR Middleware (TanStack Start Integration)
 // ==========================================
 
 type ServerEntry = {
-  fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
+  fetch: (request: Request) => Promise<Response> | Response;
 };
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
@@ -81,7 +84,7 @@ let serverEntryPromise: Promise<ServerEntry> | undefined;
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
-      (m) => (m.default ?? m) as ServerEntry,
+      (m) => (m.default ?? m) as unknown as ServerEntry,
     );
   }
   return serverEntryPromise;
@@ -111,17 +114,23 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   });
 }
 
-// أي طلب آخر يتم توجيهه لتطبيق الـ Frontend الأساسي
-app.use(async (req, res, next) => {
+app.use(async (req: ExpressRequest, res: ExpressResponse, _next: NextFunction) => {
   try {
     const serverEntry = await getServerEntry();
-    const webRequest = new Request(`http://${req.headers.host}${req.url}`, {
+    const url = `http://${req.headers.host}${req.url}`;
+    
+    const requestInit: RequestInit = {
       method: req.method,
       headers: req.headers as HeadersInit,
-      body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body)
-    });
+    };
 
-    const webResponse = await serverEntry.fetch(webRequest, {}, {});
+    if (!['GET', 'HEAD'].includes(req.method)) {
+      requestInit.body = JSON.stringify(req.body);
+    }
+
+    const webRequest = new Request(url, requestInit);
+
+    const webResponse = await serverEntry.fetch(webRequest);
     const normalizedResponse = await normalizeCatastrophicSsrResponse(webResponse);
 
     res.status(normalizedResponse.status);
@@ -133,7 +142,9 @@ app.use(async (req, res, next) => {
     res.send(responseBody);
   } catch (error) {
     console.error(error);
-    res.status(500).send(renderErrorPage());
+    if (!res.headersSent) {
+      res.status(500).send(renderErrorPage());
+    }
   }
 });
 

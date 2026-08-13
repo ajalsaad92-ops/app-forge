@@ -4,34 +4,6 @@ import { get, set } from "idb-keyval";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
-// مثال على مكان وضعها داخل مكون الـ React
-const handleDecompile = async (file: File) => {
-  try {
-    // 1. إظهار مؤشر التحميل (Loading)
-    setIsLoading(true); 
-    
-    const formData = new FormData();
-    formData.append('apk', file);
-
-    const response = await fetch('http://localhost:3000/api/decompile', {
-      method: 'POST',
-      body: formData,
-    });
-    
-    const data = await response.json();
-    if (data.success) {
-      console.log('تم فك الملفات بنجاح في المسار:', data.outputDir);
-      // هنا يمكنك استدعاء دالة لتحديث شجرة الملفات بالمسار المستخرج
-    } else {
-      alert('فشل فك الـ APK: ' + data.error);
-    }
-  } catch (err) {
-    console.error('خطأ في الاتصال بالخادم المحلي:', err);
-    alert('تأكد من تشغيل الخادم المحلي على پورت 3000');
-  } finally {
-    setIsLoading(false);
-  }
-};
 import { 
   FileCode, 
   FolderPlus, 
@@ -79,7 +51,9 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Wrench } from "lucide-react";
+import { SetupGuide } from "@/components/SetupGuide";
+
 
 export const Route = createFileRoute("/editor")({
   component: () => (
@@ -112,7 +86,9 @@ function AppForgeEditor() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set(['1']));
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(false);
   const [isBackendLoading, setIsBackendLoading] = React.useState<{[key: string]: boolean}>({});
+
   const [chatMessages, setChatMessages] = React.useState<{role: 'user' | 'ai', content: string}[]>([]);
   const [chatInput, setChatInput] = React.useState("");
   const [viewMode, setViewMode] = React.useState<'editor' | 'diff'>('editor');
@@ -123,7 +99,9 @@ function AppForgeEditor() {
     apiKey: ''
   });
   const [showSettings, setShowSettings] = React.useState(false);
+  const [showSetup, setShowSetup] = React.useState(false);
   const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
+
 
   // Load API Key and Files from storage
   React.useEffect(() => {
@@ -501,13 +479,16 @@ function AppForgeEditor() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans dark">
+    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans dark selection:bg-primary/30">
+      <SetupGuide open={showSetup} onOpenChange={setShowSetup} />
+      
       <aside className="w-64 border-r flex flex-col bg-sidebar/50 backdrop-blur-sm">
         <div className="p-4 border-b flex items-center justify-between bg-muted/20">
           <div className="flex items-center gap-2 font-bold text-lg text-slate-100">
             <Code2 className="h-5 w-5 text-primary" />
             <span>App-Forge</span>
           </div>
+
           <div className="flex gap-1">
             <label className="p-1 hover:bg-slate-800 rounded cursor-pointer text-slate-400 hover:text-slate-100" title="Upload APK/ZIP">
               <Upload className="h-4 w-4" />
@@ -584,6 +565,15 @@ function AppForgeEditor() {
             <Button 
               size="sm" 
               variant="outline"
+              onClick={() => setShowSetup(true)}
+              className="h-8 px-3 text-xs border-muted bg-muted/20 text-foreground hover:bg-muted/40"
+            >
+              <Wrench className="mr-2 h-4 w-4" />
+              Setup
+            </Button>
+            <Button 
+              size="sm" 
+              variant="outline"
               onClick={runMetaAudit}
               disabled={isAnalyzing || isBinary}
               className="h-8 px-3 text-xs border-muted bg-muted/20 text-foreground hover:bg-muted/40"
@@ -603,6 +593,7 @@ function AppForgeEditor() {
             <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => setShowSettings(true)}>
               <Settings className="h-4 w-4" />
             </Button>
+
           </div>
         </header>
 

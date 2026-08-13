@@ -322,9 +322,11 @@ function AppForgeEditor() {
     setChatInput("");
 
     if (!activeFile || activeFile.type !== 'file' || typeof activeFile.content !== 'string') {
-      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a text file first." }]);
+      setChatMessages(prev => [...prev, { role: 'ai', content: "Please select a text file for the AI to analyze." }]);
       return;
     }
+    const context = `The user is currently viewing this file: ${activeFile.name}. File Content: \n ${activeFile.content}. Answer their question based strictly on this file.`;
+    const prompt = `${context}\n\nUser Question: ${userMessage}`;
 
     if (!aiSettings.apiKey) {
       setChatMessages(prev => [...prev, { role: 'ai', content: `Please configure your ${aiSettings.provider} API Key in settings first.` }]);
@@ -337,7 +339,7 @@ function AppForgeEditor() {
     
     try {
       const currentCode = activeFile.content;
-      const actionResult = await getCodeAction(aiSettings, currentCode, userMessage);
+      const actionResult = await getCodeAction(aiSettings, currentCode, prompt);
       
       setPendingCode(actionResult.modifiedCode);
       setOriginalCode(currentCode);

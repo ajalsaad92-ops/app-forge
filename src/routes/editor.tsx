@@ -80,8 +80,10 @@ const STORAGE_KEY = "APPFORGE_FILES_V2";
 function AppForgeEditor() {
   const [files, setFiles] = React.useState<FileSystemItem[]>(DEFAULT_FILES);
   const [activeFileId, setActiveFileId] = React.useState<string>('2');
+  const [searchQuery, setSearchQuery] = React.useState("");
   const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set(['1']));
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [isBackendLoading, setIsBackendLoading] = React.useState<{[key: string]: boolean}>({});
   const [chatMessages, setChatMessages] = React.useState<{role: 'user' | 'ai', content: string}[]>([]);
   const [chatInput, setChatInput] = React.useState("");
   const [viewMode, setViewMode] = React.useState<'editor' | 'diff'>('editor');

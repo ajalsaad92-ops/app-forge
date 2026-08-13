@@ -680,18 +680,18 @@ function AppForgeEditor() {
         </Dialog>
       </main>
 
-      <aside className="w-80 border-l flex flex-col bg-card/30">
-        <header className="h-12 border-b flex items-center px-4 bg-muted/10 shrink-0">
+      <aside className="w-80 border-l flex flex-col bg-sidebar/50 backdrop-blur-sm">
+        <header className="h-12 border-b flex items-center px-4 bg-muted/20 shrink-0">
           <MessageSquare className="h-4 w-4 mr-2 text-primary" />
-          <span className="text-sm font-semibold">AI Assistant</span>
+          <span className="text-sm font-semibold text-slate-100">AI Assistant</span>
         </header>
         
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="flex-1 p-4 bg-slate-900/50">
           <div className="space-y-4">
             {chatMessages.map((msg, i) => (
               <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                 <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                  msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border'
+                  msg.role === 'user' ? 'bg-primary text-primary-foreground shadow-lg' : 'bg-slate-800 border-slate-700 text-slate-100 shadow-md'
                 }`}>
                   <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
                   {msg.role === 'ai' && pendingCode && i === chatMessages.length - 1 && (
@@ -710,13 +710,13 @@ function AppForgeEditor() {
           </div>
         </ScrollArea>
 
-        <form onSubmit={sendChatMessage} className="p-4 border-t bg-muted/5">
+        <form onSubmit={sendChatMessage} className="p-4 border-t bg-slate-800/80 backdrop-blur-sm">
           <div className="relative">
             <Input 
-              placeholder="Ask AI..."
+              placeholder="Ask AI about this file..."
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              className="pr-10"
+              className="pr-10 bg-slate-900 border-slate-700 focus-visible:ring-primary/50 text-slate-100"
             />
             <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:text-primary">
               <Send className="h-4 w-4" />

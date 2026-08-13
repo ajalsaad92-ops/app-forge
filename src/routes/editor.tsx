@@ -491,6 +491,17 @@ function AppForgeEditor() {
             </button>
           </div>
         </div>
+        <div className="px-4 py-2 border-b">
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Search files..." 
+              className="pl-8 h-9 bg-muted/50 border-muted focus-visible:ring-primary/50"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
         <ScrollArea className="flex-1">
           <div className="py-2">{renderTree(null)}</div>
         </ScrollArea>

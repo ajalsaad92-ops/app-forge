@@ -371,6 +371,18 @@ function AppForgeEditor() {
             <span>App-Forge</span>
           </div>
           <div className="flex gap-1">
+            <label className="p-1 hover:bg-accent rounded cursor-pointer" title="Upload APK/ZIP">
+              <Upload className="h-4 w-4" />
+              <input 
+                type="file" 
+                accept=".apk,.zip" 
+                className="hidden" 
+                onChange={handleFileUpload}
+              />
+            </label>
+            <button onClick={handleExport} className="p-1 hover:bg-accent rounded" title="Export Project">
+              <Download className="h-4 w-4" />
+            </button>
             <button onClick={() => addFile(null)} className="p-1 hover:bg-accent rounded" title="New File">
               <FilePlus className="h-4 w-4" />
             </button>

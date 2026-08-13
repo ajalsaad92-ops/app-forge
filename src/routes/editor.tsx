@@ -298,11 +298,6 @@ function AppForgeEditor() {
     const toastId = toast.loading("Performing Meta-Audit on App-Forge source...");
     try {
       // Pick some core files for context
-      const coreFiles = files.filter(f => 
-        f.type === 'file' && 
-        typeof f.content === 'string' &&
-        (f.name.endsWith('.ts') || f.name.endsWith('.tsx') || f.name.endsWith('.xml'))
-      ).slice(0, 10);
 
       const auditResult = await auditCodebase(aiSettings);
 
@@ -505,9 +500,15 @@ function AppForgeEditor() {
         <div className="flex-1 relative bg-[#1e1e1e]">
           {activeFile ? (
             isBinary ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-                <FileCode className="h-12 w-12 opacity-20" />
-                <span>Binary file content cannot be edited</span>
+              <div className="flex-1 flex items-center justify-center bg-background/50 backdrop-blur-sm p-8 text-center h-full">
+                <div className="max-w-md space-y-4">
+                  <ShieldCheck className="h-12 w-12 text-warning mx-auto" />
+                  <h3 className="text-xl font-bold text-foreground">Decompilation Required</h3>
+                  <p className="text-muted-foreground">
+                    Cannot AI-edit raw binary or Dalvik executable files directly in the browser. 
+                    Please use a backend decompilation tool (like Apktool/JADX) to extract Smali/Java source first.
+                  </p>
+                </div>
               </div>
             ) : viewMode === 'editor' ? (
               <Editor

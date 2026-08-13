@@ -145,7 +145,7 @@ function AppForgeEditor() {
         const folderId = Math.random().toString(36).substr(2, 9);
         newFiles.push({
           id: folderId,
-          name: parts[parts.length - 2],
+          name: parts[parts.length - 2] || "folder",
           type: 'folder',
           parentId: grandParentId
         });

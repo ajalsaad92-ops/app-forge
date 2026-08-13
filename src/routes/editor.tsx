@@ -513,16 +513,41 @@ function AppForgeEditor() {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-12 border-b flex items-center justify-between px-4 bg-muted/10 shrink-0">
-          <div className="text-sm font-mono text-muted-foreground">
-            {activeFile ? activeFile.name : 'No file selected'}
+        <header className="h-12 border-b flex items-center justify-between px-4 bg-muted/20 shrink-0">
+          <div className="flex items-center gap-4">
+            <div className="text-sm font-mono text-muted-foreground">
+              {activeFile ? activeFile.name : 'No file selected'}
+            </div>
+            <div className="h-4 w-[1px] bg-border mx-2" />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => callBackend('decompile', 'Decompile')}
+                disabled={isBackendLoading['Decompile']}
+                className="h-8 px-3 text-xs bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
+              >
+                {isBackendLoading['Decompile'] ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Play className="mr-2 h-3 w-3" />}
+                Decompile APK
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => callBackend('build', 'Build')}
+                disabled={isBackendLoading['Build']}
+                className="h-8 px-3 text-xs bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
+              >
+                {isBackendLoading['Build'] ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <ShieldCheck className="mr-2 h-3 w-3" />}
+                Rebuild & Sign APK
+              </Button>
+            </div>
           </div>
           <div className="flex gap-2">
             <Button
               size="sm"
               variant="outline"
               onClick={() => setViewMode(viewMode === 'editor' ? 'diff' : 'editor')}
-              className="h-8 px-3"
+              className="h-8 px-3 border-muted bg-muted/20 text-foreground hover:bg-muted/40"
             >
               {viewMode === 'editor' ? <Split className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
               {viewMode === 'editor' ? 'Diff' : 'Editor'}
@@ -532,7 +557,7 @@ function AppForgeEditor() {
               variant="outline"
               onClick={runMetaAudit}
               disabled={isAnalyzing || isBinary}
-              className="h-8 px-3 text-xs"
+              className="h-8 px-3 text-xs border-muted bg-muted/20 text-foreground hover:bg-muted/40"
             >
               <ShieldCheck className="mr-2 h-4 w-4" />
               Audit Source
@@ -541,12 +566,12 @@ function AppForgeEditor() {
               size="sm" 
               onClick={runAnalysis}
               disabled={isAnalyzing || !activeFile || isBinary}
-              className="h-8 px-3"
+              className="h-8 px-3 bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
               Analyze
             </Button>
-            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setShowSettings(true)}>
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => setShowSettings(true)}>
               <Settings className="h-4 w-4" />
             </Button>
           </div>

@@ -414,7 +414,7 @@ function AppForgeEditor() {
     return filteredFiles.map(item => (
         <div key={item.id} className="select-none">
           <div 
-            className={`flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-accent/50 group ${activeFileId === item.id ? 'bg-accent text-accent-foreground' : ''}`}
+            className={`flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-slate-800 group ${activeFileId === item.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400'}`}
             style={{ paddingLeft: `${level * 12 + 8}px` }}
             onClick={() => item.type === 'folder' ? toggleFolder(item.id) : setActiveFileId(item.id)}
           >

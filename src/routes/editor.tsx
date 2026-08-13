@@ -21,7 +21,9 @@ import {
   Key,
   Check,
   X,
-  Edit2
+  Edit2,
+  Upload,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -29,6 +31,17 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
 import { analyzeAndRefactorCode, getCodeAction } from "@/lib/gemini";
+import { apkProcessor } from "@/lib/apk-processor";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,

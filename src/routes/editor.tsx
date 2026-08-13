@@ -79,7 +79,9 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Wrench } from "lucide-react";
+import { SetupGuide } from "@/components/SetupGuide";
+
 
 export const Route = createFileRoute("/editor")({
   component: () => (
@@ -123,7 +125,9 @@ function AppForgeEditor() {
     apiKey: ''
   });
   const [showSettings, setShowSettings] = React.useState(false);
+  const [showSetup, setShowSetup] = React.useState(false);
   const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
+
 
   // Load API Key and Files from storage
   React.useEffect(() => {

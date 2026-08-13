@@ -57,7 +57,12 @@ const SetupStep = ({ title, description, command, link, isCompleted, onToggle }:
         const splitTitle = title.split(':');
         const candidate = splitTitle[1];
         if (candidate) {
-          toolName = candidate.trim().split(' ')[0].toLowerCase();
+          const candidateParts = candidate.trim().split(' ');
+          const firstPart = candidateParts[0];
+          if (firstPart) {
+            toolName = firstPart.toLowerCase();
+          }
+
         }
       }
 

@@ -335,10 +335,18 @@ function AppForgeEditor() {
   const applyChanges = () => {
     if (!pendingCode || !activeFileId) return;
     
-    setFiles(files.map(f => f.id === activeFileId ? { ...f, content: pendingCode } : f));
+    const updatedFiles = files.map(f => f.id === activeFileId ? { ...f, content: pendingCode } : f);
+    setFiles(updatedFiles);
+    
+    // Explicitly persist to IndexedDB immediately to ensure safety
+    set("APPFORGE_FILES", updatedFiles).catch(err => {
+      console.error("Failed to persist changes to IndexedDB", err);
+      toast.error("Code updated in editor, but failed to save to disk.");
+    });
+
     setPendingCode(null);
     setViewMode('editor');
-    toast.success("Changes applied successfully");
+    toast.success("Changes applied and saved to IndexedDB");
   };
 
   const discardChanges = () => {

@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
-import { execSync, writeFileSync, mkdirSync, readFileSync, rmSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { writeFileSync, mkdirSync, readFileSync, rmSync, existsSync, readdirSync, statSync } from 'node:fs';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';

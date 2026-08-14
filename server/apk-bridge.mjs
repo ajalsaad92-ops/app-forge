@@ -24,6 +24,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { MODS, detectMod, applyMod, modsSummary } from "./mods.mjs";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -208,29 +209,69 @@ app.get("/api/tools", async (req, res) => {
 });
 
 app.post("/api/install-tools", async (req, res) => {
-  // Real best-effort install. On Windows we use winget (no elevation needed for
-  // most packages). On macOS we use brew. Linux users install manually.
-  const commands = process.platform === "win32"
+  // Real best-effort install. Returns per-command results so the UI can show
+  // exactly what succeeded. Manual instructions remain in the SetupGuide.
+  const plan = process.platform === "win32"
     ? [
-        "winget install --id Oracle.JDK.17 -e --accept-source-agreements --accept-package-agreements",
-        "winget install --id Google.AndroidStudio -e --accept-source-agreements --accept-package-agreements",
+        "winget install --id EclipseAdoptium.Temurin.17.JDK -e --accept-source-agreements --accept-package-agreements",
+        "winget install --id apktool.apktool -e --accept-source-agreements --accept-package-agreements",
       ]
     : process.platform === "darwin"
       ? ["brew install --cask temurin", "brew install apktool"]
       : [];
-  if (commands.length === 0) {
-    return res.json({ message: "Auto-install unsupported on this OS. Install JDK 17, apktool, and Android build-tools manually." });
+
+  if (plan.length === 0) {
+    return res.json({
+      message: "التثبيت التلقائي غير مدعوم على نظام التشغيل هذا. ثبّت JDK 17 + apktool + Android build-tools يدويًا.",
+      results: [],
+      unsupported: true,
+    });
   }
-  const started = [];
-  for (const cmd of commands) {
+
+  const results = [];
+  for (const cmd of plan) {
     try {
       await execAsync(cmd, { timeout: 10 * 60 * 1000 });
-      started.push(`ok: ${cmd}`);
+      results.push({ cmd, ok: true });
     } catch (err) {
-      started.push(`failed: ${cmd} (${err.message})`);
+      results.push({ cmd, ok: false, error: err.message });
     }
   }
-  res.json({ message: "Installation commands triggered", results: started });
+  res.json({ message: "تم تشغيل أوامر التثبيت", results });
+});
+
+// ---------------------------------------------------------------------------
+// Mods engine (ready-made patches)
+// ---------------------------------------------------------------------------
+
+app.get("/api/mods", (req, res) => {
+  res.json({ mods: modsSummary() });
+});
+
+app.post("/api/mods/detect", async (req, res) => {
+  try {
+    const { modId } = req.body || {};
+    if (!state.decompiledDir) return res.status(400).json({ error: "لا يوجد مشروع محمّل. ارفع APK أولًا." });
+    const mod = MODS.find((m) => m.id === modId);
+    if (!mod) return res.status(400).json({ error: "قالب غير معروف" });
+    const matches = await detectMod(state.decompiledDir, mod);
+    res.json({ modId, count: matches.length, matches: matches.slice(0, 300) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/mods/apply", async (req, res) => {
+  try {
+    const { modId } = req.body || {};
+    if (!state.decompiledDir) return res.status(400).json({ error: "لا يوجد مشروع محمّل. ارفع APK أولًا." });
+    const mod = MODS.find((m) => m.id === modId);
+    if (!mod) return res.status(400).json({ error: "قالب غير معروف" });
+    const changed = await applyMod(state.decompiledDir, mod);
+    res.json({ modId, changed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Upload an APK and decompile it.

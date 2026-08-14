@@ -87,3 +87,40 @@ export async function bridgeBuild(): Promise<{ fileName: string }> {
 export function bridgeDownloadUrl(): string {
   return `${getBridgeBase()}/api/download`;
 }
+
+// ---------------------------------------------------------------------------
+// Mods engine (ready-made patches)
+// ---------------------------------------------------------------------------
+
+export interface BridgeMod {
+  id: string;
+  name: string;
+  nameAr: string;
+  icon: string;
+  category: string;
+  descriptionAr: string;
+}
+
+export interface ModMatch {
+  path: string;
+  kind: string;
+  method: string | null;
+  snippet: string;
+}
+
+export async function bridgeListMods(): Promise<BridgeMod[]> {
+  const res = await fetch(`${getBridgeBase()}/api/mods`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `List mods failed (${res.status})`);
+  return data.mods as BridgeMod[];
+}
+
+export async function bridgeDetectMod(modId: string): Promise<{ count: number; matches: ModMatch[] }> {
+  const data = await postJSON("/api/mods/detect", { modId });
+  return { count: data.count, matches: data.matches };
+}
+
+export async function bridgeApplyMod(modId: string): Promise<{ changed: string[] }> {
+  const data = await postJSON("/api/mods/apply", { modId });
+  return { changed: data.changed };
+}

@@ -16,7 +16,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   Info,
-  Settings
+  Settings,
+  Wand2,
+  Search,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -48,7 +51,12 @@ import {
   bridgeWriteFile,
   bridgeBuild,
   bridgeDownloadUrl,
+  bridgeListMods,
+  bridgeDetectMod,
+  bridgeApplyMod,
   type BridgeFileEntry,
+  type BridgeMod,
+  type ModMatch,
 } from "@/lib/bridge-client";
 import {
   Dialog,
@@ -145,6 +153,17 @@ function AppForgeEditor() {
   // True when the current session is decompiled on the bridge (real smali/manifest),
   // so edits and builds are routed through the bridge rather than in-browser JSZip.
   const bridgeSession = React.useRef(false);
+
+  // Mods (Toolbox) state
+  interface ModEntry {
+    detected?: ModMatch[] | null;
+    changed?: string[] | null;
+    busy?: boolean;
+    error?: string | null;
+  }
+  const [showMods, setShowMods] = React.useState(false);
+  const [mods, setMods] = React.useState<BridgeMod[]>([]);
+  const [modState, setModState] = React.useState<Record<string, ModEntry>>({});
 
   // Initialization
   React.useEffect(() => {
@@ -442,6 +461,59 @@ function AppForgeEditor() {
     setViewMode("editor");
   };
 
+  // --- Mods (Toolbox) handlers ---
+  const openMods = async () => {
+    setShowMods(true);
+    if (mods.length === 0) {
+      try {
+        setMods(await bridgeListMods());
+      } catch (err: any) {
+        toast.error(`تعذّر تحميل القوالب: ${err.message}`);
+      }
+    }
+  };
+
+  const patchModState = (modId: string, patch: Partial<ModEntry>) => {
+    setModState((s) => {
+      const next: Record<string, ModEntry> = { ...s };
+      next[modId] = { ...(s[modId] ?? {}), ...patch };
+      return next;
+    });
+  };
+
+  const runDetectMod = async (modId: string) => {
+    patchModState(modId, { busy: true, error: null });
+    try {
+      const { count, matches } = await bridgeDetectMod(modId);
+      patchModState(modId, { busy: false, detected: matches, changed: null, error: null });
+      toast.success(`وجد ${count} موضعًا قابلًا للتعديل`);
+    } catch (err: any) {
+      patchModState(modId, { busy: false, error: err.message });
+      toast.error(`فشل الاكتشاف: ${err.message}`);
+    }
+  };
+
+  const runApplyMod = async (modId: string) => {
+    patchModState(modId, { busy: true, error: null });
+    try {
+      const { changed } = await bridgeApplyMod(modId);
+      patchModState(modId, { busy: false, changed, detected: null, error: null });
+      // Refresh the modified files in the editor view.
+      for (const p of changed) {
+        try {
+          const content = await bridgeReadFile(p);
+          setApkFiles((prev) => prev.map((f) => (f.path === p ? { ...f, content } : f)));
+        } catch {
+          /* file may be binary or unreadable — ignore */
+        }
+      }
+      toast.success(`تم التعديل في ${changed.length} ملفًا — اضغط Build لإعادة التوقيع`);
+    } catch (err: any) {
+      patchModState(modId, { busy: false, error: err.message });
+      toast.error(`فشل التطبيق: ${err.message}`);
+    }
+  };
+
   return (
     <div 
       className="flex h-screen w-full bg-[#0a0a0f] text-slate-100 overflow-hidden dark"
@@ -531,7 +603,7 @@ function AppForgeEditor() {
                 onClick={() => openFile(path)}
               >
                 {path.split('/').pop()}
-                <X className="h-3 w-3" onClick={(e) => closeTab(path, e)} />
+                <X className="h-3 w-3" onClick={(e: React.MouseEvent) => closeTab(path, e)} />
               </Badge>
             ))}
           </div>
@@ -550,6 +622,9 @@ function AppForgeEditor() {
             </Button>
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowSettings(true)}>
               <Settings className="h-3 w-3 mr-1" /> AI Settings
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openMods} disabled={!bridgeSession.current}>
+              <Wand2 className="h-3 w-3 mr-1" /> Mods
             </Button>
             <Button size="sm" className="h-7 text-xs" onClick={handleRebuild}>Build</Button>
           </div>
@@ -665,6 +740,97 @@ function AppForgeEditor() {
               setShowSettings(false);
               toast.success("Saved");
             }}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mods Toolbox */}
+      <Dialog open={showMods} onOpenChange={setShowMods}>
+        <DialogContent className="max-w-2xl bg-slate-900 border-slate-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-5 w-5 text-primary" />
+              قوالب التعديل الجاهزة
+            </DialogTitle>
+            <p className="text-xs text-slate-400">
+              يكتشف المواضع القابلة للتعديل في Smali/المانيفست ويطبّق التعديل تلقائيًا.
+              احتفظ بنسخة احتياطية واختبر التطبيق بعد كل تعديل.
+            </p>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-2 mt-2">
+            <div className="space-y-3">
+              {mods.length === 0 && (
+                <div className="text-xs text-slate-400">لا توجد قوالب محمّلة. تأكد أن الجسر المحلي متصل.</div>
+              )}
+              {mods.map((mod) => {
+                const st: ModEntry = modState[mod.id] ?? {};
+                return (
+                  <div key={mod.id} className="p-3 rounded-lg border border-slate-700 bg-slate-800/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{mod.icon}</span>
+                          <span className="font-bold text-sm">{mod.nameAr}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{mod.descriptionAr}</p>
+                      </div>
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-[11px] gap-1"
+                          onClick={() => runDetectMod(mod.id)}
+                          disabled={st.busy}
+                        >
+                          {st.busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                          اكتشاف
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-7 text-[11px] gap-1"
+                          onClick={() => runApplyMod(mod.id)}
+                          disabled={st.busy}
+                        >
+                          <Check className="h-3 w-3" /> تطبيق
+                        </Button>
+                      </div>
+                    </div>
+
+                    {st.error && <div className="text-[11px] text-rose-400 mt-2">{st.error}</div>}
+
+                    {st.detected && st.detected.length > 0 && (
+                      <div className="mt-2 text-[11px]">
+                        <div className="text-emerald-400 mb-1">تم العثور على {st.detected.length} موضع:</div>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {st.detected.slice(0, 50).map((mt, i) => (
+                            <div key={i} className="truncate text-slate-400">
+                              <span className="text-slate-600">{mt.path}</span>
+                              {mt.method ? ` — ${mt.method}` : ` — ${mt.snippet}`}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {st.changed && st.changed.length > 0 && (
+                      <div className="mt-2 text-[11px] text-emerald-400">
+                        تم تعديل {st.changed.length} ملف:
+                        <div className="space-y-1 max-h-32 overflow-y-auto mt-1">
+                          {st.changed.map((p, i) => (
+                            <div key={i} className="truncate text-slate-300">{p}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowMods(false)} className="border-slate-700 hover:bg-slate-800">
+              إغلاق
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

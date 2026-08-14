@@ -209,6 +209,7 @@ function AppForgeEditor() {
               ),
             );
           }
+        }
         const storedFiles = await get<FileSystemItem[]>(STORAGE_KEY);
         if (storedFiles && storedFiles.length > 0) {
           setFiles(storedFiles);

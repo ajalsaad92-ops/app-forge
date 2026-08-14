@@ -386,54 +386,43 @@ function AppForgeEditor() {
       return;
     }
     
-    // Check if local backend is online for native processing
+    setIsLoading(true);
+    const toastId = toast.loading("جاري تجميع التطبيق على الخادم... Rebuilding APK");
+    
     try {
-      const health = await fetch('http://localhost:3000/api/health');
-      if (health.ok) {
-        setIsLoading(true);
-        const toastId = toast.loading("جاري إرسال المشروع للبناء على الخادم المحلي...");
-        try {
-          const zipBlob = await apkProcessor.rebuildAPK();
-          const formData = new FormData();
-          formData.append('project', zipBlob, 'project.zip');
-          
-          const buildRes = await fetch('http://localhost:3000/api/build', {
-            method: 'POST',
-            body: formData
-          });
-          
-          if (buildRes.ok) {
-            const blob = await buildRes.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
-            a.click();
-            toast.success("تم البناء والتوقيع بنجاح!", { id: toastId });
-          } else {
-            throw new Error("فشل البناء على الخادم");
-          }
-        } catch (err: any) {
-          toast.error(`خطأ في البناء: ${err.message}`, { id: toastId });
-        } finally {
-          setIsLoading(false);
-        }
-        return;
-      }
-    } catch (e) {}
+      // Prepare files for server-side build
+      const projectFiles = apkFiles.map(f => ({
+        path: f.path,
+        content: typeof f.content === 'string' ? f.content : null
+      }));
 
-    // Fallback to browser-side export if server is offline
-    const toastId = toast.loading("الخادم المحلي غير متصل. جاري التصدير كملف مضغوط...");
-    try {
-      const blob = await apkProcessor.rebuildAPK({ removeSignature: true });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
-      a.click();
-      toast.success("تم التصدير (غير موقع)", { id: toastId });
+      const formData = new FormData();
+      formData.append('files', JSON.stringify(projectFiles));
+      formData.append('packageName', apkInfo?.packageName || 'app');
+
+      const response = await fetch('/api/apk/rebuild', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("تم تجميع التطبيق بنجاح!", { id: toastId });
+      } else {
+        const errorText = await response.text();
+        throw new Error(errorText || "فشل البناء على الخادم");
+      }
     } catch (err: any) {
-      toast.error("فشل التصدير", { id: toastId });
+      console.error(err);
+      toast.error(`خطأ في البناء: ${err.message}`, { id: toastId });
+    } finally {
+      setIsLoading(false);
     }
   };
 

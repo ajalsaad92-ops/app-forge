@@ -10,7 +10,88 @@ export interface APKFile {
   type: "text" | "binary";
   category: APKCategory;
   mimeType?: string;
+  size: number;
+  editable?: boolean;
 }
+
+export interface APKInfo {
+  packageName: string;
+  versionName: string;
+  versionCode: string;
+  minSdk: string;
+  targetSdk: string;
+  appName: string;
+  debuggable: boolean;
+  dexCount: number;
+  hasNativeLibs: boolean;
+  architectures: string[];
+  activities: { name: string }[];
+  services: { name: string }[];
+  receivers: { name: string }[];
+  providers: { name: string }[];
+  permissions: APKPermission[];
+}
+
+export interface APKPermission {
+  name: string;
+  isDangerous: boolean;
+}
+
+export interface CertificateInfo {
+  path: string;
+  fileName: string;
+  type: string;
+  isDebug: boolean;
+  size: number;
+  issuer?: string;
+  subject?: string;
+  fingerprintSHA256?: string;
+}
+
+export interface CategoryStats {
+  category: APKCategory;
+  count: number;
+  totalSize: number;
+}
+
+export const CATEGORY_META: Record<APKCategory | "all", { label: string; labelAr: string; icon: string; description: string }> = {
+  all: { label: "All Files", labelAr: "كل الملفات", icon: "📦", description: "جميع ملفات التطبيق" },
+  manifest: { label: "Manifest", labelAr: "البيان", icon: "📜", description: "ملفات التعريف والصلاحيات" },
+  code: { label: "Code", labelAr: "الكود", icon: "💻", description: "ملفات DEX و Smali" },
+  resources: { label: "Resources", labelAr: "الموارد", icon: "🎨", description: "الصور والواجهات والقيم" },
+  native: { label: "Native Libs", labelAr: "المكتبات", icon: "⚙️", description: "مكتبات .so للنظام" },
+  config: { label: "Config", labelAr: "الإعدادات", icon: "🛠️", description: "ملفات JSON و properties" },
+  security: { label: "Security", labelAr: "الأمان", icon: "🛡️", description: "الشهادات والتواقيع" },
+  other: { label: "Other", labelAr: "أخرى", icon: "📁", description: "ملفات متنوعة" },
+};
+
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+export function getFileLanguage(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "xml": return "xml";
+    case "json": return "json";
+    case "java": return "java";
+    case "kt": return "kotlin";
+    case "smali": return "smali";
+    case "js": return "javascript";
+    case "ts": return "typescript";
+    case "tsx": return "typescript";
+    case "txt": return "plaintext";
+    case "yml":
+    case "yaml": return "yaml";
+    case "properties": return "ini";
+    default: return "plaintext";
+  }
+}
+
 
 /**
  * Basic Binary XML to Text detector/parser

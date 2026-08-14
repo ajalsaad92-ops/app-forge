@@ -338,18 +338,55 @@ function AppForgeEditor() {
       toast.error("لا يوجد APK للبناء");
       return;
     }
-    const toastId = toast.loading("جاري إعادة بناء APK...");
+    
+    // Check if local backend is online for native processing
+    try {
+      const health = await fetch('http://localhost:3000/api/health');
+      if (health.ok) {
+        setIsLoading(true);
+        const toastId = toast.loading("جاري إرسال المشروع للبناء على الخادم المحلي...");
+        try {
+          const zipBlob = await apkProcessor.rebuildAPK();
+          const formData = new FormData();
+          formData.append('project', zipBlob, 'project.zip');
+          
+          const buildRes = await fetch('http://localhost:3000/api/build', {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (buildRes.ok) {
+            const blob = await buildRes.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
+            a.click();
+            toast.success("تم البناء والتوقيع بنجاح!", { id: toastId });
+          } else {
+            throw new Error("فشل البناء على الخادم");
+          }
+        } catch (err: any) {
+          toast.error(`خطأ في البناء: ${err.message}`, { id: toastId });
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+    } catch (e) {}
+
+    // Fallback to browser-side export if server is offline
+    const toastId = toast.loading("الخادم المحلي غير متصل. جاري التصدير كملف مضغوط...");
     try {
       const blob = await apkProcessor.rebuildAPK({ removeSignature: true });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${apkInfo?.packageName || "app"}-modded-${Date.now()}.apk`;
+      a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
       a.click();
-      URL.revokeObjectURL(url);
-      toast.success("تم إعادة البناء وتنزيل APK المُعدّل (غير مُوقّع - يحتاج توقيع)", { id: toastId });
+      toast.success("تم التصدير (غير موقع)", { id: toastId });
     } catch (err: any) {
-      toast.error(`فشل البناء: ${err.message}`, { id: toastId });
+      toast.error("فشل التصدير", { id: toastId });
     }
   };
 
@@ -966,7 +1003,7 @@ function AppForgeEditor() {
               {isImage && activeFile.rawContent ? (
                 <div className="space-y-4 text-center">
                   <img
-                    src={URL.createObjectURL(new Blob([activeFile.rawContent as Uint8Array]))}
+                    src={URL.createObjectURL(new Blob([(activeFile.rawContent as Uint8Array).buffer as ArrayBuffer]))}
                     alt={activeFile.name}
                     className="max-w-full max-h-[60vh] mx-auto rounded-xl border border-slate-800 shadow-2xl"
                   />

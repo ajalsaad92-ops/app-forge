@@ -27,29 +27,29 @@ export interface APKFile {
 
 export interface APKPermission {
   name: string;
-  protectionLevel?: string;
-  description?: string;
+  protectionLevel?: string | null;
+  description?: string | null;
   isDangerous: boolean;
-  isGranted?: boolean;
+  isGranted?: boolean | null;
 }
 
 export interface APKComponent {
   name: string;
-  exported?: boolean;
-  enabled?: boolean;
-  permission?: string;
+  exported?: boolean | null;
+  enabled?: boolean | null;
+  permission?: string | null;
 }
 
 export interface APKInfo {
   packageName: string;
   versionName: string;
   versionCode: string;
-  appName?: string;
-  minSdk?: string;
-  targetSdk?: string;
-  compileSdk?: string;
-  debuggable?: boolean;
-  allowBackup?: boolean;
+  appName?: string | null;
+  minSdk?: string | null;
+  targetSdk?: string | null;
+  compileSdk?: string | null;
+  debuggable?: boolean | null;
+  allowBackup?: boolean | null;
   permissions: APKPermission[];
   activities: APKComponent[];
   services: APKComponent[];
@@ -57,7 +57,7 @@ export interface APKInfo {
   providers: APKComponent[];
   features: string[];
   usesSdk: string[];
-  icon?: string;
+  icon?: string | null;
   fileSize: number;
   fileCount: number;
   dexCount: number;
@@ -70,17 +70,17 @@ export interface CertificateInfo {
   fileName: string;
   path: string;
   type: 'RSA' | 'DSA' | 'EC' | 'UNKNOWN';
-  signatureVersion?: string;
-  issuer?: string;
-  subject?: string;
-  serialNumber?: string;
-  validFrom?: string;
-  validTo?: string;
-  fingerprintMD5?: string;
-  fingerprintSHA1?: string;
-  fingerprintSHA256?: string;
+  signatureVersion?: string | null;
+  issuer?: string | null;
+  subject?: string | null;
+  serialNumber?: string | null;
+  validFrom?: string | null;
+  validTo?: string | null;
+  fingerprintMD5?: string | null;
+  fingerprintSHA1?: string | null;
+  fingerprintSHA256?: string | null;
   size: number;
-  isDebug?: boolean;
+  isDebug?: boolean | null;
 }
 
 export interface CategoryStats {
@@ -225,7 +225,7 @@ function parseManifestFromStrings(strings: string[]): Partial<APKInfo> {
     );
     if (possiblePackages.length > 0) {
       // Sort by likelihood: shortest that looks like app package
-      info.packageName = possiblePackages.sort((a,b) => a.length - b.length)[0];
+      info.packageName = possiblePackages.sort((a,b) => a.length - b.length)[0] || "";
     }
   }
 
@@ -239,14 +239,14 @@ function parseManifestFromStrings(strings: string[]): Partial<APKInfo> {
   // Extract SDK
   const sdkStrings = strings.filter(s => /^\d+$/.test(s) && parseInt(s) >= 14 && parseInt(s) <= 35);
   if (sdkStrings.length >= 1) {
-    info.minSdk = sdkStrings[0];
-    if (sdkStrings.length >= 2) info.targetSdk = sdkStrings[1];
+    info.minSdk = sdkStrings[0] || null;
+    if (sdkStrings.length >= 2) info.targetSdk = sdkStrings[1] || null;
   }
 
   // Extract version
   const versionStrings = strings.filter(s => /^\d+\.\d+/.test(s) || /^v?\d+\.\d+\.\d+/.test(s));
   if (versionStrings.length > 0) {
-    info.versionName = versionStrings[0];
+    info.versionName = versionStrings[0] || "";
   }
 
   return info;
@@ -261,9 +261,9 @@ function parseXmlManifest(content: string): Partial<APKInfo> {
     if (!manifest || manifest.tagName === 'parsererror') return {};
 
     const info: Partial<APKInfo> = {
-      packageName: manifest.getAttribute('package') || undefined,
-      versionName: manifest.getAttribute('android:versionName') || manifest.getAttribute('versionName') || undefined,
-      versionCode: manifest.getAttribute('android:versionCode') || manifest.getAttribute('versionCode') || undefined,
+      packageName: manifest.getAttribute('package') || "",
+      versionName: manifest.getAttribute('android:versionName') || manifest.getAttribute('versionName') || "",
+      versionCode: manifest.getAttribute('android:versionCode') || manifest.getAttribute('versionCode') || "",
       permissions: [],
       activities: [],
       services: [],
@@ -282,16 +282,16 @@ function parseXmlManifest(content: string): Partial<APKInfo> {
     if (app) {
       info.debuggable = getAttr(app, 'debuggable') === 'true';
       info.allowBackup = getAttr(app, 'allowBackup') !== 'false';
-      info.appName = getAttr(app, 'label') || info.packageName;
-      info.icon = getAttr(app, 'icon') || undefined;
+      info.appName = getAttr(app, 'label') || info.packageName || null;
+      info.icon = getAttr(app, 'icon') || null;
     }
 
     // SDK
     const usesSdk = doc.querySelector('uses-sdk');
     if (usesSdk) {
-      info.minSdk = getAttr(usesSdk, 'minSdkVersion');
-      info.targetSdk = getAttr(usesSdk, 'targetSdkVersion');
-      info.compileSdk = getAttr(usesSdk, 'compileSdkVersion');
+      info.minSdk = getAttr(usesSdk, 'minSdkVersion') || null;
+      info.targetSdk = getAttr(usesSdk, 'targetSdkVersion') || null;
+      info.compileSdk = getAttr(usesSdk, 'compileSdkVersion') || null;
     }
 
     // Permissions
@@ -318,9 +318,9 @@ function parseXmlManifest(content: string): Partial<APKInfo> {
         if (name) {
           list.push({
             name: name.startsWith('.') ? (info.packageName || '') + name : name,
-            exported: getAttr(el, 'exported') === 'true' ? true : getAttr(el, 'exported') === 'false' ? false : undefined,
+            exported: getAttr(el, 'exported') === 'true' ? true : getAttr(el, 'exported') === 'false' ? false : null,
             enabled: getAttr(el, 'enabled') !== 'false',
-            permission: getAttr(el, 'permission'),
+            permission: getAttr(el, 'permission') || null,
           });
         }
       });
@@ -570,10 +570,10 @@ export class APKProcessor {
       packageName: manifestInfo.packageName || 'com.unknown.app',
       versionName: manifestInfo.versionName || '1.0.0',
       versionCode: manifestInfo.versionCode || '1',
-      appName: manifestInfo.appName,
+      appName: manifestInfo.appName || null,
       minSdk: manifestInfo.minSdk || '21',
       targetSdk: manifestInfo.targetSdk || '34',
-      compileSdk: manifestInfo.compileSdk,
+      compileSdk: manifestInfo.compileSdk || null,
       debuggable: manifestInfo.debuggable || false,
       allowBackup: manifestInfo.allowBackup ?? true,
       permissions: manifestInfo.permissions || [],
@@ -583,7 +583,7 @@ export class APKProcessor {
       providers: manifestInfo.providers || [],
       features: manifestInfo.features || [],
       usesSdk: manifestInfo.usesSdk || [],
-      icon: manifestInfo.icon,
+      icon: manifestInfo.icon || null,
       fileSize: originalFile.size,
       fileCount: this.files.size,
       dexCount: dexFiles.length,
@@ -628,8 +628,8 @@ export class APKProcessor {
           isDebug,
           issuer: isDebug ? 'CN=Android Debug, O=Android, C=US' : 'Unknown (parse DER)',
           subject: isDebug ? 'CN=Android Debug, O=Android, C=US' : 'Unknown',
-          validFrom: isDebug ? 'Debug cert' : undefined,
-          validTo: isDebug ? 'Debug cert - 30 years' : undefined,
+          validFrom: isDebug ? 'Debug cert' : null,
+          validTo: isDebug ? 'Debug cert - 30 years' : null,
         });
       } else if (path.endsWith('.MF') || path.endsWith('.SF')) {
         certs.push({
@@ -637,7 +637,7 @@ export class APKProcessor {
           path,
           type: 'UNKNOWN',
           size: file.size,
-          fingerprintSHA256: typeof file.content === 'string' ? file.content.slice(0,200) : undefined,
+          fingerprintSHA256: typeof file.content === 'string' ? file.content.slice(0,200) : null,
         });
       }
     }

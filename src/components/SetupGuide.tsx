@@ -209,6 +209,14 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
 
         <ScrollArea className="max-h-[60vh] pr-4 mt-4">
           <div className="space-y-6 pb-4">
+            <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg text-xs text-blue-300 flex items-start gap-3">
+              <Info className="h-4 w-4 shrink-0 mt-0.5" />
+              <p>
+                Full decompilation and binary modification require a local environment. 
+                Ensure these tools are installed and the App-Forge bridge is running on port 3000.
+              </p>
+            </div>
+
             <div className="space-y-4">
               <h3 className="text-sm font-medium text-slate-300 flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
@@ -216,24 +224,25 @@ export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange
               </h3>
               
               <SetupStep 
-                title="Step 1: Install Java (JDK 17+)"
-                description="Java Development Kit is required for Apktool and Apksigner to run. Version 17 is recommended for maximum compatibility."
+                title="Java (JDK 17+)"
+                description="Required for running Apktool and signing utilities. Install OpenJDK 17 or later."
                 link="https://www.oracle.com/java/technologies/downloads/#java17"
                 isCompleted={!!completedSteps['java']}
                 onToggle={() => toggleStep('java')}
               />
 
               <SetupStep 
-                title="Step 2: Install Apktool"
-                description="The core engine for decompiling APKs to Smali and rebuilding them. Ensure it's in your system PATH."
+                title="Apktool"
+                description="The core engine for decompiling APKs. Download the latest jar and wrapper scripts."
+                link="https://apktool.org/docs/install"
                 command="apktool --version"
                 isCompleted={!!completedSteps['apktool']}
                 onToggle={() => toggleStep('apktool')}
               />
 
               <SetupStep 
-                title="Step 3: Install Android Build Tools"
-                description="Required for 'apksigner' to sign your rebuilt APKs so they can be installed on Android devices. Use winget for fast installation."
+                title="Android Build Tools"
+                description="Provides 'apksigner' and 'zipalign'. Install via Android Studio or winget."
                 command="winget install Google.AndroidSDK.BuildTools"
                 isCompleted={!!completedSteps['buildtools']}
                 onToggle={() => toggleStep('buildtools')}

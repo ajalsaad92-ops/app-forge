@@ -151,3 +151,24 @@ export async function auditCodebase(settings: AISettings) {
 
   return await callAI(settings, prompt);
 }
+
+export async function checkAppFunctionality(settings: AISettings, manifest: string, fileList: string[]) {
+  const prompt = `
+    Analyze this Android app's manifest and file list to estimate if it will work after modifications.
+    
+    MANIFEST:
+    ${manifest.slice(0, 5000)}
+    
+    FILE COUNT: ${fileList.length}
+    SAMPLE FILES: ${fileList.slice(0, 50).join(', ')}
+
+    Identify potential crashes:
+    1. Missing mandatory permissions for declared activities.
+    2. Signature mismatches if re-signed.
+    3. Missing native libraries for common architectures.
+    4. Proguard/Obfuscation risks.
+
+    Return a "Stability Score" (0-100) and specific warnings.
+  `;
+  return await callAI(settings, prompt);
+}

@@ -1102,6 +1102,9 @@ function AppForgeEditor() {
             <TabsTrigger value="ai" className="text-[11px] h-6">
               <MessageSquare className="h-3 w-3 mr-1" /> مساعد
             </TabsTrigger>
+            <TabsTrigger value="audit" className="text-[11px] h-6">
+              <ShieldCheck className="h-3 w-3 mr-1" /> فحص
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="info" className="flex-1 mt-0 overflow-hidden flex flex-col">
@@ -1288,6 +1291,55 @@ function AppForgeEditor() {
                 جمّل الكود
               </Button>
             </div>
+          </TabsContent>
+
+          <TabsContent value="audit" className="flex-1 mt-0 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1 p-3">
+              <div className="space-y-4">
+                <div className="text-center py-4 space-y-3">
+                  <ShieldCheck className={`h-12 w-12 mx-auto ${stabilityAudit ? 'text-emerald-400' : 'text-slate-500 opacity-30'}`} />
+                  <div>
+                    <h3 className="text-sm font-bold">فحص استقرار التطبيق</h3>
+                    <p className="text-[11px] text-slate-500">تحليل احتمالية عمل التطبيق بعد التعديلات</p>
+                  </div>
+                  <Button 
+                    onClick={handleStabilityAudit} 
+                    disabled={isAuditing || !apkInfo}
+                    className="w-full"
+                  >
+                    {isAuditing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                    بدء الفحص الشامل
+                  </Button>
+                </div>
+
+                {stabilityAudit && (
+                  <Card className="bg-slate-800/30 border-slate-800">
+                    <CardContent className="p-3 text-[12px] leading-relaxed whitespace-pre-wrap text-slate-200">
+                      {stabilityAudit}
+                    </CardContent>
+                  </Card>
+                )}
+                
+                <div className="grid grid-cols-1 gap-2">
+                  <div className="p-3 rounded-xl bg-slate-800/30 border border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <Cpu className="h-3 w-3 text-blue-400" /> فحوصات تلقائية
+                    </div>
+                    <ul className="text-[10px] text-slate-400 space-y-1">
+                      <li className="flex items-center gap-2">
+                        <Check className="h-3 w-3 text-emerald-500" /> توافق معماري (Native Libs)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-3 w-3 text-emerald-500" /> تكامل الموارد (Resources Table)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-3 w-3 text-emerald-500" /> صحة ملف البيان (Manifest)
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
           </TabsContent>
         </Tabs>
       </aside>

@@ -402,8 +402,8 @@ function AppForgeEditor() {
                   >
                     <CardContent className="p-3 flex justify-between items-center">
                       <div className="flex items-center gap-2">
-                        <span className="text-xl">{CATEGORY_META[stat.category].icon}</span>
-                        <div className="text-xs">{CATEGORY_META[stat.category].labelAr}</div>
+                        <span className="text-xl">{CATEGORY_META[stat.category]?.icon || '📁'}</span>
+                        <div className="text-xs">{CATEGORY_META[stat.category]?.labelAr || stat.category}</div>
                       </div>
                       <div className="text-xs font-bold">{stat.count}</div>
                     </CardContent>

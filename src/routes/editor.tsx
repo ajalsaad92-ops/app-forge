@@ -844,27 +844,56 @@ function AppForgeEditor() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
             {activeFile && (
               <>
                 <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setViewMode(viewMode === "editor" ? "diff" : "editor")}>
                   <Split className="h-3 w-3 mr-1" />
                   {viewMode === "editor" ? "Diff" : "Editor"}
                 </Button>
-                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={runAnalysis} disabled={isAnalyzing}>
-                  {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
-                  تحليل
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] border-pink-500/30 bg-pink-500/5 hover:bg-pink-500/10 text-pink-400"
+                  onClick={() => setChatInput("تغيير صورة وأيقونات التطبيق Change App Icon")}
+                >
+                  <ImageIcon className="h-3 w-3 mr-1" /> صورة
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-400"
+                  onClick={() => setChatInput("فتح المميزات والاشتراكات Unlock All Features")}
+                >
+                  <Flame className="h-3 w-3 mr-1" /> المميزات
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-red-400"
+                  onClick={() => setChatInput("قطع الإنترنت عن التطبيق Block Network Access")}
+                >
+                  <ShieldAlert className="h-3 w-3 mr-1" /> الإنترنت
+                </Button>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+                  onClick={handleStabilityAudit}
+                >
+                  <CheckCircle className="h-3 w-3 mr-1" /> فحص العمل
                 </Button>
               </>
             )}
-            <Button size="sm" className="h-7 text-[11px] bg-primary" onClick={handleRebuild} disabled={apkFiles.length === 0}>
-              <Wrench className="h-3 w-3 mr-1" />
+            <div className="h-4 w-px bg-slate-800 mx-1 shrink-0" />
+            <Button size="sm" className="h-7 text-[11px] bg-primary shrink-0" onClick={handleRebuild} disabled={apkFiles.length === 0}>
+              <Play className="h-3 w-3 mr-1" />
               بناء APK
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSetup(true)} title="Setup">
+            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSetup(true)} title="Setup">
               <Settings className="h-3.5 w-3.5" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSettings(true)}>
+            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSettings(true)}>
               <Key className="h-3.5 w-3.5" />
             </Button>
           </div>

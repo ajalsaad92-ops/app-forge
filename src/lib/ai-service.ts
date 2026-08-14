@@ -100,9 +100,16 @@ export async function callAI(settings: AISettings, prompt: string) {
   }
 }
 
-export async function getCodeAction(settings: AISettings, code: string, instruction: string) {
+export async function getCodeAction(settings: AISettings, code: string, instruction: string, projectFiles?: any[]) {
+  const fileContext = projectFiles 
+    ? `Available files in project:\n${projectFiles.map(f => `  - ${f.path} (${f.category})`).join('\n')}`
+    : "";
+
   const prompt = `
-    You are a code transformation assistant. Perform the following action: "${instruction}".
+    You are a code transformation assistant for an Android APK modding IDE. 
+    Perform the following action: "${instruction}".
+    
+    ${fileContext}
     
     Return a JSON object with the following structure:
     {
@@ -112,7 +119,7 @@ export async function getCodeAction(settings: AISettings, code: string, instruct
 
     IMPORTANT: Return ONLY the raw JSON. No markdown formatting, no conversational text.
 
-    CODE:
+    CURRENT FILE CONTENT:
     ${code}
   `;
 

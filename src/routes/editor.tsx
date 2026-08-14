@@ -257,6 +257,12 @@ function AppForgeEditor() {
       setApkInfo(result.info);
       setCertificates(result.certificates);
       setCategoryStats(result.stats);
+      
+      // Set default tabs for JSZip fallback too
+      setOpenTabs(["AndroidManifest.xml"]);
+      setActiveFilePath("AndroidManifest.xml");
+      setCenterTab("visual");
+
       setManifestEdit({
         packageName: result.info.packageName || "",
         versionName: result.info.versionName || "",

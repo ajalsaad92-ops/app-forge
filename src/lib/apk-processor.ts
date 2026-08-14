@@ -10,46 +10,116 @@ export interface APKFile {
   type: "text" | "binary";
   category: APKCategory;
   mimeType?: string;
+  size: number;
+  editable?: boolean;
 }
 
-/**
- * Basic Binary XML to Text detector/parser
- * In a real scenario, this would use an AXML parser.
- * Here we provide a readable representation or hex fallback.
- */
+export interface APKInfo {
+  packageName: string;
+  versionName: string;
+  versionCode: string;
+  minSdk: string;
+  targetSdk: string;
+  appName: string;
+  debuggable: boolean;
+  dexCount: number;
+  hasNativeLibs: boolean;
+  architectures: string[];
+  activities: { name: string }[];
+  services: { name: string }[];
+  receivers: { name: string }[];
+  providers: { name: string }[];
+  permissions: APKPermission[];
+}
+
+export interface APKPermission {
+  name: string;
+  isDangerous: boolean;
+}
+
+export interface CertificateInfo {
+  path: string;
+  fileName: string;
+  type: string;
+  isDebug: boolean;
+  size: number;
+  issuer?: string;
+  subject?: string;
+  fingerprintSHA256?: string;
+}
+
+export interface CategoryStats {
+  category: APKCategory;
+  count: number;
+  totalSize: number;
+}
+
+export const CATEGORY_META: Record<APKCategory | "all", { label: string; labelAr: string; icon: string; description: string }> = {
+  all: { label: "All Files", labelAr: "كل الملفات", icon: "📦", description: "جميع ملفات التطبيق" },
+  manifest: { label: "Manifest", labelAr: "البيان", icon: "📜", description: "ملفات التعريف والصلاحيات" },
+  code: { label: "Code", labelAr: "الكود", icon: "💻", description: "ملفات DEX و Smali" },
+  resources: { label: "Resources", labelAr: "الموارد", icon: "🎨", description: "الصور والواجهات والقيم" },
+  native: { label: "Native Libs", labelAr: "المكتبات", icon: "⚙️", description: "مكتبات .so للنظام" },
+  config: { label: "Config", labelAr: "الإعدادات", icon: "🛠️", description: "ملفات JSON و properties" },
+  security: { label: "Security", labelAr: "الأمان", icon: "🛡️", description: "الشهادات والتواقيع" },
+  other: { label: "Other", labelAr: "أخرى", icon: "📁", description: "ملفات متنوعة" },
+};
+
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+export function getFileLanguage(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "xml": return "xml";
+    case "json": return "json";
+    case "java": return "java";
+    case "kt": return "kotlin";
+    case "smali": return "smali";
+    case "js": return "javascript";
+    case "ts": return "typescript";
+    case "tsx": return "typescript";
+    case "txt": return "plaintext";
+    case "yml":
+    case "yaml": return "yaml";
+    case "properties": return "ini";
+    default: return "plaintext";
+  }
+}
+
 function parseBinaryContent(path: string, buffer: Uint8Array): string {
   if (path === "AndroidManifest.xml" || path.endsWith(".xml")) {
-    // Check if it's actually binary (AXML starts with 0x03 0x00 0x08 0x00)
     if (buffer[0] === 0x03 && buffer[1] === 0x00) {
-      return `[Binary Android XML File]\nPath: ${path}\nSize: ${buffer.length} bytes\n\nThis is a compiled Android Binary XML. A full AXML decompiler would be needed to view the original source.`;
+      return `[Binary Android XML File]\nPath: ${path}\nSize: ${buffer.length} bytes\n\nThis is a compiled Android Binary XML.`;
     }
   }
-  
-  if (path.endsWith(".dex")) {
-    return `[Dalvik Executable File]\nPath: ${path}\nSize: ${buffer.length} bytes\n\nThis is a compiled Android DEX file containing bytecode.`;
-  }
+  if (path.endsWith(".dex")) return `[Dalvik Executable File]\nSize: ${buffer.length} bytes`;
+  if (path.endsWith(".so")) return `[Native Shared Library]\nSize: ${buffer.length} bytes`;
+  if (path.endsWith(".arsc")) return `[Resources Table]\nSize: ${buffer.length} bytes`;
 
-  if (path.endsWith(".so")) {
-    return `[Native Shared Library]\nPath: ${path}\nSize: ${buffer.length} bytes\n\nThis is a compiled ELF binary for native code.`;
-  }
-
-  if (path.endsWith(".arsc")) {
-    return `[Resources Table]\nPath: ${path}\nSize: ${buffer.length} bytes\n\nThis is the compiled resources table.`;
-  }
-
-  // Hex viewer fallback for generic binary
   const hex = Array.from(buffer.slice(0, 512))
     .map(b => b.toString(16).padStart(2, '0'))
     .join(' ');
-  
-  return `[Binary File: Cannot render in text mode]\nPath: ${path}\nSize: ${buffer.length} bytes\n\nHex dump (first 512 bytes):\n${hex}${buffer.length > 512 ? '...' : ''}`;
+  return `[Binary File]\nSize: ${buffer.length} bytes\n\nHex dump:\n${hex}`;
+}
+
+export interface LoadAPKResult {
+  info: APKInfo;
+  files: string[];
+  certificates: CertificateInfo[];
+  stats: CategoryStats[];
 }
 
 export class APKProcessor {
   private zip: JSZip | null = null;
   private files: Map<string, APKFile> = new Map();
 
-  async loadAPK(file: File): Promise<string[]> {
+  async loadAPK(file: File): Promise<LoadAPKResult> {
     this.zip = await JSZip.loadAsync(file);
     this.files.clear();
     const fileNames: string[] = [];
@@ -67,53 +137,72 @@ export class APKProcessor {
 
     const entries = Object.keys(this.zip.files);
     
-    const loadPromises = entries.map((name) => 
+    await Promise.all(entries.map((name) => 
       limit(async () => {
         const entry = this.zip!.files[name];
         if (!entry || entry.dir) return;
 
         fileNames.push(name);
-        
-        const isKnownText = name.endsWith(".smali") || 
-                            name.endsWith(".json") || 
-                            name.endsWith(".txt") ||
-                            name.endsWith(".yml") ||
-                            name.endsWith(".properties");
-        
-        // XML is tricky because in APKs it's usually binary
-        const isXml = name.endsWith(".xml");
-
+        const isKnownText = name.endsWith(".smali") || name.endsWith(".json") || name.endsWith(".txt") || name.endsWith(".yml") || name.endsWith(".properties");
         const category = getCategory(name);
+        const uint8 = await entry.async("uint8array");
+        const size = uint8.length;
 
-        try {
-          if (isKnownText) {
-            const content = await entry.async("string");
-            this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "text", category });
-          } else {
-            const content = await entry.async("uint8array");
-            
-            // Check if we should try to "textify" it for the editor
-            if (isXml || name.endsWith(".dex") || name.endsWith(".so") || name.endsWith(".arsc")) {
-              const textified = parseBinaryContent(name, content);
-              this.files.set(name, { 
-                name: name.split('/').pop() || name, 
-                path: name, 
-                content: textified, 
-                type: "text", // We set it as text so Monaco can show the hex/meta
-                category 
-              });
-            } else {
-              this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "binary", category });
-            }
-          }
-        } catch (err) {
-          console.error(`Failed to load entry ${name}:`, err);
+        if (isKnownText) {
+          const content = await entry.async("string");
+          this.files.set(name, { name: name.split('/').pop() || name, path: name, content, type: "text", category, size, editable: true });
+        } else if (name.endsWith(".xml") || name.endsWith(".dex") || name.endsWith(".so") || name.endsWith(".arsc")) {
+          const textified = parseBinaryContent(name, uint8);
+          this.files.set(name, { name: name.split('/').pop() || name, path: name, content: textified, type: "text", category, size, editable: false });
+        } else {
+          this.files.set(name, { name: name.split('/').pop() || name, path: name, content: uint8, type: "binary", category, size, editable: false });
         }
       })
-    );
+    ));
 
-    await Promise.all(loadPromises);
-    return fileNames;
+    const stats: CategoryStats[] = (['manifest', 'code', 'resources', 'native', 'config', 'security', 'other'] as APKCategory[]).map(cat => {
+      const catFiles = Array.from(this.files.values()).filter(f => f.category === cat);
+      return {
+        category: cat,
+        count: catFiles.length,
+        totalSize: catFiles.reduce((acc, f) => acc + f.size, 0)
+      };
+    }).filter(s => s.count > 0);
+
+    const info: APKInfo = {
+      packageName: "com.example.app",
+      versionName: "1.0.0",
+      versionCode: "1",
+      minSdk: "21",
+      targetSdk: "33",
+      appName: file.name.replace(".apk", ""),
+      debuggable: false,
+      dexCount: Array.from(this.files.values()).filter(f => f.path.endsWith(".dex")).length,
+      hasNativeLibs: Array.from(this.files.values()).some(f => f.category === 'native'),
+      architectures: [],
+      activities: [],
+      services: [],
+      receivers: [],
+      providers: [],
+      permissions: []
+    };
+
+    const certs: CertificateInfo[] = Array.from(this.files.values())
+      .filter(f => f.category === 'security' && (f.path.endsWith(".RSA") || f.path.endsWith(".DSA") || f.path.endsWith(".SF")))
+      .map(f => ({
+        path: f.path,
+        fileName: f.name,
+        type: f.path.split('.').pop() || "CERT",
+        isDebug: f.path.includes("debug"),
+        size: f.size,
+        issuer: "Mock Issuer"
+      }));
+
+    return { info, files: fileNames, certificates: certs, stats };
+  }
+
+  getAllFiles(): APKFile[] {
+    return Array.from(this.files.values());
   }
 
   getFileContent(path: string): APKFile | undefined {
@@ -124,41 +213,19 @@ export class APKProcessor {
     const file = this.files.get(path);
     if (file) {
       file.content = content;
+      file.size = content.length;
       this.files.set(path, file);
-      if (this.zip) {
-        this.zip.file(path, content);
-      }
+      if (this.zip) this.zip.file(path, content);
     }
   }
 
-  deleteFile(path: string) {
-    this.files.delete(path);
-    if (this.zip) {
-      this.zip.remove(path);
-    }
-  }
-
-  renameFile(oldPath: string, newPath: string) {
-    const file = this.files.get(oldPath);
-    if (file && this.zip) {
-      this.zip.file(newPath, file.content);
-      this.zip.remove(oldPath);
-      this.files.delete(oldPath);
-      this.files.set(newPath, { 
-        ...file, 
-        name: newPath.split('/').pop() || newPath, 
-        path: newPath 
-      });
-    }
-  }
-
-  async rebuildAPK(): Promise<Blob> {
+  async rebuildAPK(options?: { removeSignature?: boolean }): Promise<Blob> {
     if (!this.zip) throw new Error("No APK loaded");
-    return await this.zip.generateAsync({ 
-      type: "blob",
-      compression: "DEFLATE",
-      compressionOptions: { level: 6 }
-    });
+    if (options?.removeSignature) {
+      const certFiles = Array.from(this.files.values()).filter(f => f.category === 'security');
+      certFiles.forEach(f => this.zip?.remove(f.path));
+    }
+    return await this.zip.generateAsync({ type: "blob", compression: "DEFLATE" });
   }
 }
 
@@ -166,25 +233,8 @@ export const apkProcessor = new APKProcessor();
 
 export async function exportToZip(files: any[]): Promise<Blob> {
   const zip = new JSZip();
-  
-  const addFilesToZip = (items: any[], currentPath = "") => {
-    items.forEach(item => {
-      const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
-      if (item.type === 'file') {
-        zip.file(itemPath, item.content || "");
-      } else {
-        const children = files.filter(f => f.parentId === item.id);
-        addFilesToZip(children, itemPath);
-      }
-    });
-  };
-
-  const rootItems = files.filter(f => f.parentId === null);
-  addFilesToZip(rootItems);
-
-  return await zip.generateAsync({ 
-    type: "blob",
-    compression: "DEFLATE",
-    compressionOptions: { level: 6 }
+  files.forEach(f => {
+    if (f.type === 'file') zip.file(f.name, f.content || "");
   });
+  return await zip.generateAsync({ type: "blob" });
 }

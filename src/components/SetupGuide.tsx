@@ -57,7 +57,7 @@ const SetupStep = ({ title, description, command, link, isCompleted, onToggle }:
       if (lowerTitle.includes("java")) toolName = "java";
       else if (lowerTitle.includes("apktool")) toolName = "apktool";
       else if (lowerTitle.includes("build tools") || lowerTitle.includes("apksigner")) toolName = "buildtools";
-      else toolName = title.split(":")[0].trim().toLowerCase();
+      else toolName = (title.split(":")[0] || "").trim().toLowerCase();
 
       const response = await fetch(`http://localhost:3000/api/verify-tool?tool=${toolName}`);
       const data = await response.json();

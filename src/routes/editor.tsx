@@ -60,8 +60,12 @@ import {
   getCodeAction,
   callAI,
   auditCodebase,
+  askAboutAPK,
+  buildAPKContext,
+  isAppWideQuestion,
   type AIProvider,
   type AISettings,
+  PROVIDERS,
   PROVIDER_LINKS,
 } from "@/lib/ai-service";
 import {
@@ -86,7 +90,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ShieldCheck } from "lucide-react";
 import { SetupGuide } from "@/components/SetupGuide";
 import { Textarea } from "@/components/ui/textarea";
@@ -130,23 +140,48 @@ function AppForgeEditor() {
   // Legacy file system for generic project support
   const [files, setFiles] = React.useState<FileSystemItem[]>([
     { id: "1", name: "src", type: "folder", parentId: null },
-    { id: "2", name: "App.tsx", type: "file", content: "export default function App() {\n  return <h1>Hello App-Forge!</h1>;\n}", parentId: "1" },
-    { id: "3", name: "utils.ts", type: "file", content: "export const add = (a: number, b: number) => a + b;", parentId: "1" },
+    {
+      id: "2",
+      name: "App.tsx",
+      type: "file",
+      content: "export default function App() {\n  return <h1>Hello App-Forge!</h1>;\n}",
+      parentId: "1",
+    },
+    {
+      id: "3",
+      name: "utils.ts",
+      type: "file",
+      content: "export const add = (a: number, b: number) => a + b;",
+      parentId: "1",
+    },
   ]);
 
-  const [chatMessages, setChatMessages] = React.useState<{ role: "user" | "ai"; content: string }[]>([
-    { role: "ai", content: "مرحباً! 👋 أنا مساعد APP-FORGE الذكي. يمكنك سؤالي عن أي ملف في الـ APK أو طلب تعديل الكود.\n\nHello! I can help you analyze and modify APK files. Upload an APK to start." },
+  const [chatMessages, setChatMessages] = React.useState<
+    { role: "user" | "ai"; content: string }[]
+  >([
+    {
+      role: "ai",
+      content:
+        "مرحباً! 👋 أنا مساعد APP-FORGE الذكي. يمكنك سؤالي عن أي ملف في الـ APK أو طلب تعديل الكود.\n\nHello! I can help you analyze and modify APK files. Upload an APK to start.",
+    },
   ]);
   const [chatInput, setChatInput] = React.useState("");
   const [viewMode, setViewMode] = React.useState<"editor" | "diff">("editor");
   const [originalCode, setOriginalCode] = React.useState("");
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
-  const [aiSettings, setAiSettings] = React.useState<AISettings>({ provider: "gemini", apiKey: "" });
+  const [aiSettings, setAiSettings] = React.useState<AISettings>({
+    provider: "gemini",
+    apiKey: "",
+  });
   const [showSettings, setShowSettings] = React.useState(false);
   const [showSetup, setShowSetup] = React.useState(false);
   const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
-  const [manifestEdit, setManifestEdit] = React.useState({ packageName: "", versionName: "", versionCode: "" });
+  const [manifestEdit, setManifestEdit] = React.useState({
+    packageName: "",
+    versionName: "",
+    versionCode: "",
+  });
 
   // Load persisted + check pending file from landing
   React.useEffect(() => {
@@ -158,13 +193,22 @@ function AppForgeEditor() {
         } catch {}
       }
       try {
-        const storedMeta = await get<{ info: APKInfo; certs: CertificateInfo[]; stats: CategoryStats[]; files: APKFile[] }>(APK_META_KEY);
+        const storedMeta = await get<{
+          info: APKInfo;
+          certs: CertificateInfo[];
+          stats: CategoryStats[];
+          files: APKFile[];
+        }>(APK_META_KEY);
         if (storedMeta) {
           setApkInfo(storedMeta.info);
           setCertificates(storedMeta.certs);
           setCategoryStats(storedMeta.stats);
           if (storedMeta.files && storedMeta.files.length > 0) {
-            setApkFiles(storedMeta.files.map(f => ({ ...f, content: f.content || `[Persisted] ${f.path}` } as APKFile)));
+            setApkFiles(
+              storedMeta.files.map(
+                (f) => ({ ...f, content: f.content || `[Persisted] ${f.path}` }) as APKFile,
+              ),
+            );
           }
         }
       } catch {}
@@ -173,22 +217,31 @@ function AppForgeEditor() {
     init();
   }, []);
 
-  const activeFile = React.useMemo(() => apkFiles.find(f => f.path === activeFilePath), [apkFiles, activeFilePath]);
+  const activeFile = React.useMemo(
+    () => apkFiles.find((f) => f.path === activeFilePath),
+    [apkFiles, activeFilePath],
+  );
 
   const filteredFiles = React.useMemo(() => {
     let list = apkFiles;
     if (activeCategory !== "all") {
-      list = list.filter(f => f.category === activeCategory);
+      list = list.filter((f) => f.category === activeCategory);
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      list = list.filter(f => f.path.toLowerCase().includes(q) || f.name.toLowerCase().includes(q));
+      list = list.filter(
+        (f) => f.path.toLowerCase().includes(q) || f.name.toLowerCase().includes(q),
+      );
     }
     return list;
   }, [apkFiles, activeCategory, searchQuery]);
 
   const handleAPKUpload = async (file: File) => {
-    if (!file.name.endsWith(".apk") && !file.name.endsWith(".zip") && !file.name.endsWith(".xapk")) {
+    if (
+      !file.name.endsWith(".apk") &&
+      !file.name.endsWith(".zip") &&
+      !file.name.endsWith(".xapk")
+    ) {
       toast.error("الرجاء رفع ملف APK صالح");
       return;
     }
@@ -207,10 +260,11 @@ function AppForgeEditor() {
       });
 
       // Open manifest by default
-      const manifest = result.files.find(p => p === "AndroidManifest.xml") || result.files[0] || "";
+      const manifest =
+        result.files.find((p) => p === "AndroidManifest.xml") || result.files[0] || "";
       if (manifest) {
         setActiveFilePath(manifest);
-        setOpenTabs(prev => (prev.includes(manifest) ? prev : [manifest, ...prev].slice(0, 10)));
+        setOpenTabs((prev) => (prev.includes(manifest) ? prev : [manifest, ...prev].slice(0, 10)));
       }
 
       // Persist meta (without raw binary for storage limit)
@@ -219,7 +273,13 @@ function AppForgeEditor() {
           info: result.info,
           certs: result.certificates,
           stats: result.stats,
-          files: apkProcessor.getAllFiles().map(f => ({ ...f, rawContent: undefined, content: typeof f.content === "string" ? f.content.slice(0, 5000) : undefined })),
+          files: apkProcessor
+            .getAllFiles()
+            .map((f) => ({
+              ...f,
+              rawContent: undefined,
+              content: typeof f.content === "string" ? f.content.slice(0, 5000) : undefined,
+            })),
         });
       } catch {}
 
@@ -259,7 +319,7 @@ function AppForgeEditor() {
   const openFile = (path: string) => {
     setActiveFilePath(path);
     if (!openTabs.includes(path)) {
-      setOpenTabs(prev => [...prev, path].slice(-10));
+      setOpenTabs((prev) => [...prev, path].slice(-10));
     }
     // Auto switch center tab based on file
     if (path === "AndroidManifest.xml") {
@@ -273,9 +333,9 @@ function AppForgeEditor() {
 
   const closeTab = (path: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setOpenTabs(prev => prev.filter(p => p !== path));
+    setOpenTabs((prev) => prev.filter((p) => p !== path));
     if (activeFilePath === path) {
-      const remaining = openTabs.filter(p => p !== path);
+      const remaining = openTabs.filter((p) => p !== path);
       setActiveFilePath(remaining[remaining.length - 1] || "");
     }
   };
@@ -286,7 +346,9 @@ function AppForgeEditor() {
     // Update processor
     apkProcessor.updateFileContent(activeFilePath, updatedContent);
     // Update state
-    setApkFiles(prev => prev.map(f => (f.path === activeFilePath ? { ...f, content: updatedContent } : f)));
+    setApkFiles((prev) =>
+      prev.map((f) => (f.path === activeFilePath ? { ...f, content: updatedContent } : f)),
+    );
   };
 
   const handleSaveManifest = () => {
@@ -299,16 +361,26 @@ function AppForgeEditor() {
 
   const handleAddPermission = (permName: string) => {
     if (!apkInfo || !permName.trim()) return;
-    if (apkInfo.permissions.some(p => p.name === permName)) {
+    if (apkInfo.permissions.some((p) => p.name === permName)) {
       toast.error("الصلاحية موجودة مسبقاً");
       return;
     }
-    const newPerm: APKPermission = { name: permName, isDangerous: permName.includes("LOCATION") || permName.includes("CAMERA") || permName.includes("CONTACTS") };
+    const newPerm: APKPermission = {
+      name: permName,
+      isDangerous:
+        permName.includes("LOCATION") ||
+        permName.includes("CAMERA") ||
+        permName.includes("CONTACTS"),
+    };
     const updated = { ...apkInfo, permissions: [...apkInfo.permissions, newPerm] };
     setApkInfo(updated);
     // Try to update manifest XML if editable
-    const manifest = apkFiles.find(f => f.path === "AndroidManifest.xml");
-    if (manifest && typeof manifest.content === "string" && manifest.content.includes("<manifest")) {
+    const manifest = apkFiles.find((f) => f.path === "AndroidManifest.xml");
+    if (
+      manifest &&
+      typeof manifest.content === "string" &&
+      manifest.content.includes("<manifest")
+    ) {
       let content = manifest.content as string;
       const permTag = `    <uses-permission android:name="${permName}" />\n`;
       if (content.includes("</manifest>")) {
@@ -322,16 +394,77 @@ function AppForgeEditor() {
 
   const handleRemovePermission = (permName: string) => {
     if (!apkInfo) return;
-    const updated = { ...apkInfo, permissions: apkInfo.permissions.filter(p => p.name !== permName) };
+    const updated = {
+      ...apkInfo,
+      permissions: apkInfo.permissions.filter((p) => p.name !== permName),
+    };
     setApkInfo(updated);
-    const manifest = apkFiles.find(f => f.path === "AndroidManifest.xml");
+    const manifest = apkFiles.find((f) => f.path === "AndroidManifest.xml");
     if (manifest && typeof manifest.content === "string") {
-      const content = (manifest.content as string).replace(new RegExp(`.*${permName}.*\\n?`, "g"), "");
+      const content = (manifest.content as string).replace(
+        new RegExp(`.*${permName}.*\\n?`, "g"),
+        "",
+      );
       apkProcessor.updateFileContent("AndroidManifest.xml", content);
       setApkFiles(apkProcessor.getAllFiles());
     }
     toast.success("تمت إزالة الصلاحية");
   };
+
+  const getAPKContext = React.useCallback(
+    () =>
+      buildAPKContext({
+        info: apkInfo,
+        certificates,
+        categories: categoryStats,
+        files: apkFiles,
+      }),
+    [apkInfo, certificates, categoryStats, apkFiles],
+  );
+
+  const downloadFile = React.useCallback(
+    (path: string) => {
+      const file = apkFiles.find((item) => item.path === path) || apkProcessor.getFileContent(path);
+      if (!file) {
+        toast.error("تعذر العثور على الملف");
+        return;
+      }
+      const content = file.rawContent || file.content;
+      if (typeof content === "string" && content.startsWith("[Persisted]")) {
+        toast.error("أعد رفع APK لتنزيل المحتوى الأصلي لهذا الملف");
+        return;
+      }
+      const blob = new Blob([content as BlobPart], {
+        type: file.mimeType || "application/octet-stream",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = file.name || path.split("/").pop() || "apk-file";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`تم تنزيل ${anchor.download}`);
+    },
+    [apkFiles],
+  );
+
+  const downloadCertificate = React.useCallback(
+    (certPath: string) => {
+      downloadFile(certPath);
+    },
+    [downloadFile],
+  );
+
+  const copyText = React.useCallback(async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`تم نسخ ${label}`);
+    } catch {
+      toast.error("تعذر النسخ إلى الحافظة");
+    }
+  }, []);
 
   const handleRebuild = async () => {
     if (apkFiles.length === 0) {
@@ -347,7 +480,9 @@ function AppForgeEditor() {
       a.download = `${apkInfo?.packageName || "app"}-modded-${Date.now()}.apk`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("تم إعادة البناء وتنزيل APK المُعدّل (غير مُوقّع - يحتاج توقيع)", { id: toastId });
+      toast.success("تم إعادة البناء وتنزيل APK المُعدّل (غير مُوقّع - يحتاج توقيع)", {
+        id: toastId,
+      });
     } catch (err: any) {
       toast.error(`فشل البناء: ${err.message}`, { id: toastId });
     }
@@ -374,8 +509,16 @@ function AppForgeEditor() {
     setIsAnalyzing(true);
     toast.info("جاري التحليل...");
     try {
-      const result = await analyzeCode({ data: { code: activeFile.content, fileName: activeFile.name } });
-      setChatMessages(prev => [...prev, { role: "ai", content: `**تحليل ${activeFile.name}:**\n${result.summary}\n\n**اقتراحات:**\n${result.suggestions.map(s => `• ${s}`).join("\n")}` }]);
+      const result = await analyzeCode({
+        data: { code: activeFile.content, fileName: activeFile.name },
+      });
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          content: `**تحليل ${activeFile.name}:**\n${result.summary}\n\n**اقتراحات:**\n${result.suggestions.map((s) => `• ${s}`).join("\n")}`,
+        },
+      ]);
       toast.success("اكتمل التحليل");
     } catch {
       toast.error("فشل التحليل");
@@ -386,33 +529,78 @@ function AppForgeEditor() {
 
   const sendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-    const userMsg = chatInput;
-    setChatMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    const userMsg = chatInput.trim();
+    if (!userMsg) return;
+    setChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setChatInput("");
 
-    if (!activeFile || typeof activeFile.content !== "string") {
-      setChatMessages(prev => [...prev, { role: "ai", content: "الرجاء اختيار ملف نصي ليقوم الذكاء الاصطناعي بتحليله." }]);
+    const appWide = isAppWideQuestion(userMsg);
+    if (!apkInfo && appWide) {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "ai", content: "حمّل APK أولاً حتى أتمكن من تحليل التطبيق كاملاً." },
+      ]);
       return;
     }
-    if (!aiSettings.apiKey) {
-      setChatMessages(prev => [...prev, { role: "ai", content: `الرجاء إعداد مفتاح ${aiSettings.provider} أولاً.` }]);
+    if (!appWide && (!activeFile || typeof activeFile.content !== "string")) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          content: "اختر ملفاً نصياً، أو اطرح سؤالاً شاملاً عن التطبيق أو الشهادات أو الصلاحيات.",
+        },
+      ]);
+      return;
+    }
+    if (aiSettings.provider !== "demo" && !aiSettings.apiKey.trim()) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          content: `أضف مفتاح ${PROVIDERS[aiSettings.provider].label} أو اختر Demo AI الذي يعمل دون مفتاح.`,
+        },
+      ]);
       setShowSettings(true);
       return;
     }
 
     setIsAnalyzing(true);
-    setChatMessages(prev => [...prev, { role: "ai", content: "جاري التفكير... Thinking..." }]);
-
+    setChatMessages((prev) => [...prev, { role: "ai", content: "جاري التفكير... Thinking..." }]);
     try {
-      const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg);
-      setPendingCode(actionResult.modifiedCode);
-      setOriginalCode(activeFile.content);
-      setChatMessages(prev => [...prev.slice(0, -1), { role: "ai", content: `${actionResult.explanation}\n\nراجع التغييرات في عرض Diff.` }]);
-      setViewMode("diff");
-      toast.info("اقترح الذكاء الاصطناعي تغييرات");
+      const apkContext = getAPKContext();
+      if (appWide) {
+        const answer = await askAboutAPK(aiSettings, userMsg, apkContext);
+        setPendingCode(null);
+        setChatMessages((prev) => [...prev.slice(0, -1), { role: "ai", content: answer }]);
+      } else if (activeFile && typeof activeFile.content === "string") {
+        const actionResult = await getCodeAction(
+          aiSettings,
+          activeFile.content,
+          userMsg,
+          apkContext,
+        );
+        const changed = actionResult.modifiedCode !== activeFile.content;
+        setPendingCode(changed ? actionResult.modifiedCode : null);
+        setOriginalCode(activeFile.content);
+        setChatMessages((prev) => [
+          ...prev.slice(0, -1),
+          {
+            role: "ai",
+            content: changed
+              ? `${actionResult.explanation}\n\nراجع التغييرات في عرض Diff.`
+              : actionResult.explanation,
+          },
+        ]);
+        if (changed) {
+          setViewMode("diff");
+          toast.info("اقترح الذكاء الاصطناعي تغييرات");
+        }
+      }
     } catch (err: any) {
-      setChatMessages(prev => [...prev.slice(0, -1), { role: "ai", content: `خطأ: ${err.message}` }]);
+      setChatMessages((prev) => [
+        ...prev.slice(0, -1),
+        { role: "ai", content: `خطأ: ${err.message}` },
+      ]);
     } finally {
       setIsAnalyzing(false);
     }
@@ -460,7 +648,11 @@ function AppForgeEditor() {
             className="flex items-center gap-2 px-3 py-1.5 text-[13px] cursor-pointer hover:bg-slate-800/70 text-slate-300"
             onClick={() => toggleFolder(folder)}
           >
-            {expandedFolders.has(folder) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {expandedFolders.has(folder) ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
             <Folder className="h-3.5 w-3.5 text-amber-400" />
             <span className="truncate font-medium">{folder === "root" ? "/" : folder}</span>
             <span className="ml-auto text-[10px] text-muted-foreground">{files.length}</span>
@@ -469,11 +661,13 @@ function AppForgeEditor() {
             <div className="ml-2 border-l border-slate-800">
               {files
                 .sort((a, b) => a.name.localeCompare(b.name))
-                .map(file => (
+                .map((file) => (
                   <div
                     key={file.path}
                     className={`flex items-center gap-2 pl-6 pr-2 py-1 text-xs cursor-pointer hover:bg-slate-800 group ${
-                      activeFilePath === file.path ? "bg-primary/20 text-primary border-r-2 border-primary" : "text-slate-400"
+                      activeFilePath === file.path
+                        ? "bg-primary/20 text-primary border-r-2 border-primary"
+                        : "text-slate-400"
                     }`}
                     onClick={() => openFile(file.path)}
                     title={file.path}
@@ -506,12 +700,19 @@ function AppForgeEditor() {
   // Derive language
   const editorLanguage = activeFile ? getFileLanguage(activeFile.name) : "plaintext";
   const isImage = activeFile?.path.match(/\.(png|jpg|jpeg|webp|gif|ico)$/i);
-  const isBinaryView = activeFile?.type === "binary" || activeFile?.path.endsWith(".dex") || activeFile?.path.endsWith(".so") || activeFile?.path.endsWith(".arsc");
+  const isBinaryView =
+    activeFile?.type === "binary" ||
+    activeFile?.path.endsWith(".dex") ||
+    activeFile?.path.endsWith(".so") ||
+    activeFile?.path.endsWith(".arsc");
 
   return (
     <div
       className="flex h-screen w-full bg-[#0a0a0f] text-slate-100 overflow-hidden font-sans dark selection:bg-primary/30"
-      onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
@@ -536,14 +737,30 @@ function AppForgeEditor() {
               <Code2 className="h-4 w-4 text-primary" />
             </div>
             <span className="text-sm">APP-FORGE</span>
-            <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">v2</Badge>
+            <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
+              v2
+            </Badge>
           </div>
           <div className="flex gap-1">
-            <label className="h-7 w-7 grid place-items-center hover:bg-slate-800 rounded cursor-pointer" title="رفع APK">
+            <label
+              className="h-7 w-7 grid place-items-center hover:bg-slate-800 rounded cursor-pointer"
+              title="رفع APK"
+            >
               <Upload className="h-4 w-4" />
-              <input type="file" accept=".apk,.zip,.xapk" className="hidden" onChange={handleFileInput} />
+              <input
+                type="file"
+                accept=".apk,.zip,.xapk"
+                className="hidden"
+                onChange={handleFileInput}
+              />
             </label>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleExport} disabled={apkFiles.length === 0}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={handleExport}
+              disabled={apkFiles.length === 0}
+            >
               <Download className="h-4 w-4" />
             </Button>
           </div>
@@ -558,8 +775,12 @@ function AppForgeEditor() {
                   {apkInfo.appName?.[0] || apkInfo.packageName[0]?.toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <p className="font-bold text-sm truncate max-w-[180px]">{apkInfo.appName || apkInfo.packageName}</p>
-                  <p className="text-[11px] text-slate-400 truncate max-w-[180px]">{apkInfo.packageName}</p>
+                  <p className="font-bold text-sm truncate max-w-[180px]">
+                    {apkInfo.appName || apkInfo.packageName}
+                  </p>
+                  <p className="text-[11px] text-slate-400 truncate max-w-[180px]">
+                    {apkInfo.packageName}
+                  </p>
                 </div>
               </div>
               <Badge variant={apkInfo.isSigned ? "default" : "destructive"} className="text-[10px]">
@@ -584,9 +805,16 @@ function AppForgeEditor() {
         )}
 
         {/* Left Tabs */}
-        <Tabs value={leftTab} onValueChange={v => setLeftTab(v as any)} className="flex-1 flex flex-col min-h-0">
+        <Tabs
+          value={leftTab}
+          onValueChange={(v) => setLeftTab(v as any)}
+          className="flex-1 flex flex-col min-h-0"
+        >
           <TabsList className="grid grid-cols-3 m-2 bg-slate-800/50 h-8">
-            <TabsTrigger value="categories" className="text-[11px] h-6 data-[state=active]:bg-primary">
+            <TabsTrigger
+              value="categories"
+              className="text-[11px] h-6 data-[state=active]:bg-primary"
+            >
               <Box className="h-3 w-3 mr-1" /> تصنيف
             </TabsTrigger>
             <TabsTrigger value="files" className="text-[11px] h-6 data-[state=active]:bg-primary">
@@ -604,7 +832,7 @@ function AppForgeEditor() {
                 placeholder="بحث... Search"
                 className="pl-8 h-8 bg-slate-900 border-slate-800 text-xs"
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
           </div>
@@ -619,14 +847,15 @@ function AppForgeEditor() {
               >
                 الكل {apkFiles.length}
               </Badge>
-              {categoryStats.map(stat => (
+              {categoryStats.map((stat) => (
                 <Badge
                   key={stat.category}
                   variant={activeCategory === stat.category ? "default" : "outline"}
                   className={`cursor-pointer text-[10px] px-2 py-0.5 border ${activeCategory === stat.category ? "" : CATEGORY_META[stat.category].color}`}
                   onClick={() => setActiveCategory(stat.category)}
                 >
-                  {CATEGORY_META[stat.category].icon} {CATEGORY_META[stat.category].labelAr} {stat.count}
+                  {CATEGORY_META[stat.category].icon} {CATEGORY_META[stat.category].labelAr}{" "}
+                  {stat.count}
                 </Badge>
               ))}
             </div>
@@ -636,24 +865,35 @@ function AppForgeEditor() {
                 {categoryStats.length === 0 ? (
                   <div className="py-10 text-center text-slate-500 text-xs space-y-3">
                     <Package className="h-8 w-8 mx-auto opacity-30" />
-                    <p>لا يوجد APK محمل<br/>Upload APK to see categories</p>
+                    <p>
+                      لا يوجد APK محمل
+                      <br />
+                      Upload APK to see categories
+                    </p>
                     <label className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-xs cursor-pointer">
                       <Upload className="h-3 w-3" /> رفع APK
-                      <input type="file" accept=".apk,.zip" className="hidden" onChange={handleFileInput} />
+                      <input
+                        type="file"
+                        accept=".apk,.zip"
+                        className="hidden"
+                        onChange={handleFileInput}
+                      />
                     </label>
                   </div>
                 ) : (
                   <>
                     {/* Category Cards */}
                     <div className="grid gap-2">
-                      {categoryStats.map(stat => {
+                      {categoryStats.map((stat) => {
                         const meta = CATEGORY_META[stat.category];
                         return (
                           <div
                             key={stat.category}
                             onClick={() => setActiveCategory(stat.category)}
                             className={`p-3 rounded-xl border cursor-pointer transition-all hover:scale-[1.02] ${
-                              activeCategory === stat.category ? "bg-primary/10 border-primary/50" : "bg-slate-800/30 border-slate-800 hover:border-slate-700"
+                              activeCategory === stat.category
+                                ? "bg-primary/10 border-primary/50"
+                                : "bg-slate-800/30 border-slate-800 hover:border-slate-700"
                             }`}
                           >
                             <div className="flex items-center justify-between">
@@ -661,14 +901,19 @@ function AppForgeEditor() {
                                 <span className="text-lg">{meta.icon}</span>
                                 <div>
                                   <div className="text-xs font-bold flex items-center gap-1">
-                                    {meta.labelAr} <span className="text-[10px] opacity-60">/ {meta.label}</span>
+                                    {meta.labelAr}{" "}
+                                    <span className="text-[10px] opacity-60">/ {meta.label}</span>
                                   </div>
-                                  <div className="text-[10px] text-slate-400">{meta.description}</div>
+                                  <div className="text-[10px] text-slate-400">
+                                    {meta.description}
+                                  </div>
                                 </div>
                               </div>
                               <div className="text-right">
                                 <div className="text-sm font-bold">{stat.count}</div>
-                                <div className="text-[10px] text-slate-500">{formatBytes(stat.totalSize)}</div>
+                                <div className="text-[10px] text-slate-500">
+                                  {formatBytes(stat.totalSize)}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -677,21 +922,29 @@ function AppForgeEditor() {
                     </div>
 
                     <div className="pt-3 border-t border-slate-800 mt-3">
-                      <div className="text-[11px] font-bold text-slate-300 mb-2 px-1">الملفات المفلترة - {filteredFiles.length}</div>
+                      <div className="text-[11px] font-bold text-slate-300 mb-2 px-1">
+                        الملفات المفلترة - {filteredFiles.length}
+                      </div>
                       <div className="space-y-0.5 max-h-[30vh] overflow-auto">
-                        {filteredFiles.slice(0, 50).map(f => (
+                        {filteredFiles.slice(0, 50).map((f) => (
                           <div
                             key={f.path}
                             onClick={() => openFile(f.path)}
                             className={`flex items-center gap-2 px-2 py-1 rounded text-[11px] cursor-pointer hover:bg-slate-800 ${
-                              activeFilePath === f.path ? "bg-primary/20 text-primary" : "text-slate-400"
+                              activeFilePath === f.path
+                                ? "bg-primary/20 text-primary"
+                                : "text-slate-400"
                             }`}
                           >
                             <span>{CATEGORY_META[f.category].icon}</span>
                             <span className="truncate flex-1">{f.path}</span>
                           </div>
                         ))}
-                        {filteredFiles.length > 50 && <div className="text-[10px] text-slate-500 px-2 py-1">و {filteredFiles.length - 50} ملف آخر...</div>}
+                        {filteredFiles.length > 50 && (
+                          <div className="text-[10px] text-slate-500 px-2 py-1">
+                            و {filteredFiles.length - 50} ملف آخر...
+                          </div>
+                        )}
                       </div>
                     </div>
                   </>
@@ -711,28 +964,66 @@ function AppForgeEditor() {
               {certificates.length === 0 ? (
                 <div className="text-center py-10 text-slate-500 text-xs">
                   <Shield className="h-8 w-8 mx-auto opacity-30 mb-2" />
-                  <p>لا توجد شهادات<br/>No certificates found</p>
+                  <p>
+                    لا توجد شهادات
+                    <br />
+                    No certificates found
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {certificates.map(cert => (
+                  {certificates.map((cert) => (
                     <Card key={cert.path} className="bg-slate-800/30 border-slate-800">
-                      <CardContent className="p-3 space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold flex items-center gap-1">
-                            <Lock className="h-3 w-3" /> {cert.fileName}
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold flex items-center gap-1 min-w-0">
+                            <Lock className="h-3 w-3 shrink-0" />{" "}
+                            <span className="truncate">{cert.fileName}</span>
                           </span>
-                          <Badge variant={cert.isDebug ? "destructive" : "secondary"} className="text-[9px]">
-                            {cert.type} {cert.isDebug ? "DEBUG" : ""}
-                          </Badge>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Badge
+                              variant={cert.isDebug ? "destructive" : "secondary"}
+                              className="text-[9px]"
+                            >
+                              {cert.type} {cert.isDebug ? "DEBUG" : "RELEASE / UNKNOWN"}
+                            </Badge>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              title="تنزيل الشهادة"
+                              onClick={() => downloadCertificate(cert.path)}
+                            >
+                              <Download className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
                         <div className="text-[10px] space-y-1 text-slate-400">
-                          <div>المسار: {cert.path}</div>
+                          <div className="break-all">المسار: {cert.path}</div>
                           <div>الحجم: {formatBytes(cert.size)}</div>
                           {cert.issuer && <div className="break-all">المُصدر: {cert.issuer}</div>}
+                          {cert.subject && <div className="break-all">المالك: {cert.subject}</div>}
                           {cert.fingerprintSHA256 && (
-                            <div className="break-all p-1 bg-slate-900 rounded font-mono text-[9px]">{cert.fingerprintSHA256.slice(0, 120)}...</div>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-300">SHA-256</span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-5 px-1.5 text-[9px]"
+                                  onClick={() => copyText(cert.fingerprintSHA256 || "", "SHA-256")}
+                                >
+                                  نسخ
+                                </Button>
+                              </div>
+                              <div className="break-all p-1.5 bg-slate-900 rounded font-mono text-[9px] select-all">
+                                {cert.fingerprintSHA256}
+                              </div>
+                            </div>
                           )}
+                          <div className="rounded bg-slate-950 p-1.5 font-mono text-[9px] break-all select-all">
+                            keytool -printcert -file {cert.fileName}
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -741,7 +1032,10 @@ function AppForgeEditor() {
                     <CardContent className="p-3 text-[11px] text-amber-300/80">
                       <div className="flex gap-2">
                         <AlertTriangle className="h-4 w-4 shrink-0" />
-                        <span>سيتم إزالة التوقيع القديم عند إعادة البناء. ستحتاج لتوقيع جديد بـ apksigner.</span>
+                        <span>
+                          سيتم إزالة التوقيع القديم عند إعادة البناء. ستحتاج لتوقيع جديد بـ
+                          apksigner.
+                        </span>
                       </div>
                     </CardContent>
                   </Card>
@@ -753,7 +1047,9 @@ function AppForgeEditor() {
 
         <div className="p-2 border-t border-slate-800 text-[10px] text-slate-500 flex items-center gap-2">
           <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          {apkFiles.length > 0 ? `${apkFiles.length} ملف | ${categoryStats.length} تصنيف` : "في انتظار APK"}
+          {apkFiles.length > 0
+            ? `${apkFiles.length} ملف | ${categoryStats.length} تصنيف`
+            : "في انتظار APK"}
         </div>
       </aside>
 
@@ -764,46 +1060,95 @@ function AppForgeEditor() {
           <div className="flex items-center gap-2 min-w-0">
             {/* Open tabs */}
             <div className="flex items-center gap-1 overflow-auto max-w-[60vw] scrollbar-none">
-              {openTabs.map(path => {
-                const file = apkFiles.find(f => f.path === path);
+              {openTabs.map((path) => {
+                const file = apkFiles.find((f) => f.path === path);
                 return (
                   <div
                     key={path}
                     onClick={() => setActiveFilePath(path)}
                     className={`group flex items-center gap-1.5 px-3 py-1 rounded-md text-xs cursor-pointer border whitespace-nowrap shrink-0 ${
-                      activeFilePath === path ? "bg-primary text-primary-foreground border-primary" : "bg-slate-800 border-slate-800 text-slate-400 hover:text-slate-200"
+                      activeFilePath === path
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-slate-800 border-slate-800 text-slate-400 hover:text-slate-200"
                     }`}
                   >
-                    <span className="truncate max-w-[120px]">{file?.name || path.split("/").pop()}</span>
-                    <X className="h-3 w-3 opacity-60 hover:opacity-100" onClick={e => closeTab(path, e)} />
+                    <span className="truncate max-w-[120px]">
+                      {file?.name || path.split("/").pop()}
+                    </span>
+                    <X
+                      className="h-3 w-3 opacity-60 hover:opacity-100"
+                      onClick={(e) => closeTab(path, e)}
+                    />
                   </div>
                 );
               })}
-              {openTabs.length === 0 && <span className="text-xs text-slate-500">لا يوجد ملف مفتوح</span>}
+              {openTabs.length === 0 && (
+                <span className="text-xs text-slate-500">لا يوجد ملف مفتوح</span>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-1.5">
             {activeFile && (
               <>
-                <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setViewMode(viewMode === "editor" ? "diff" : "editor")}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-[11px]"
+                  onClick={() => setViewMode(viewMode === "editor" ? "diff" : "editor")}
+                >
                   <Split className="h-3 w-3 mr-1" />
                   {viewMode === "editor" ? "Diff" : "Editor"}
                 </Button>
-                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={runAnalysis} disabled={isAnalyzing}>
-                  {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px]"
+                  onClick={runAnalysis}
+                  disabled={isAnalyzing}
+                >
+                  {isAnalyzing ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <Play className="h-3 w-3 mr-1" />
+                  )}
                   تحليل
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-[11px]"
+                  onClick={() => downloadFile(activeFile.path)}
+                  title="تنزيل الملف الحالي"
+                >
+                  <Download className="h-3 w-3 mr-1" /> تنزيل
                 </Button>
               </>
             )}
-            <Button size="sm" className="h-7 text-[11px] bg-primary" onClick={handleRebuild} disabled={apkFiles.length === 0}>
+            <Button
+              size="sm"
+              className="h-7 text-[11px] bg-primary"
+              onClick={handleRebuild}
+              disabled={apkFiles.length === 0}
+            >
               <Wrench className="h-3 w-3 mr-1" />
               بناء APK
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSetup(true)} title="Setup">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => setShowSetup(true)}
+              title="Setup"
+            >
               <Settings className="h-3.5 w-3.5" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSettings(true)}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => setShowSettings(true)}
+            >
               <Key className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -812,25 +1157,48 @@ function AppForgeEditor() {
         {/* Center sub tabs for file types */}
         {activeFile && (
           <div className="h-9 border-b border-slate-800 bg-slate-900/30 flex items-center px-2 gap-2 shrink-0">
-            <Tabs value={centerTab} onValueChange={v => setCenterTab(v as any)} className="h-full">
+            <Tabs
+              value={centerTab}
+              onValueChange={(v) => setCenterTab(v as any)}
+              className="h-full"
+            >
               <TabsList className="h-7 bg-transparent gap-1">
-                <TabsTrigger value="code" className="h-6 text-[11px] data-[state=active]:bg-slate-800">
+                <TabsTrigger
+                  value="code"
+                  className="h-6 text-[11px] data-[state=active]:bg-slate-800"
+                >
                   <Code2 className="h-3 w-3 mr-1" /> الكود
                 </TabsTrigger>
                 {activeFilePath === "AndroidManifest.xml" && (
-                  <TabsTrigger value="visual" className="h-6 text-[11px] data-[state=active]:bg-slate-800">
+                  <TabsTrigger
+                    value="visual"
+                    className="h-6 text-[11px] data-[state=active]:bg-slate-800"
+                  >
                     <Eye className="h-3 w-3 mr-1" /> مرئي Visual
                   </TabsTrigger>
                 )}
-                <TabsTrigger value="preview" className="h-6 text-[11px] data-[state=active]:bg-slate-800">
+                <TabsTrigger
+                  value="preview"
+                  className="h-6 text-[11px] data-[state=active]:bg-slate-800"
+                >
                   <ImageIcon className="h-3 w-3 mr-1" /> معاينة
                 </TabsTrigger>
               </TabsList>
             </Tabs>
             <div className="ml-auto text-[10px] text-slate-500 flex items-center gap-2">
               <span>{formatBytes(activeFile.size)}</span>
-              <Badge variant="outline" className="text-[9px]">{activeFile.category}</Badge>
-              {activeFile.editable ? <Badge className="text-[9px] bg-emerald-500/20 text-emerald-400 border-emerald-500/20">قابل للتعديل</Badge> : <Badge variant="destructive" className="text-[9px]">للقراءة فقط</Badge>}
+              <Badge variant="outline" className="text-[9px]">
+                {activeFile.category}
+              </Badge>
+              {activeFile.editable ? (
+                <Badge className="text-[9px] bg-emerald-500/20 text-emerald-400 border-emerald-500/20">
+                  قابل للتعديل
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="text-[9px]">
+                  للقراءة فقط
+                </Badge>
+              )}
             </div>
           </div>
         )}
@@ -846,13 +1214,23 @@ function AppForgeEditor() {
                   </div>
                   <div className="space-y-2">
                     <h2 className="text-2xl font-black tracking-tight">محرر APK الاحترافي</h2>
-                    <p className="text-slate-400 text-sm">قم بتحميل أي تطبيق أندرويد لتعديله. سيتم فرز الملفات حسب الشهادات، الإعدادات، الموارد، والشيفرة تلقائياً.</p>
+                    <p className="text-slate-400 text-sm">
+                      قم بتحميل أي تطبيق أندرويد لتعديله. سيتم فرز الملفات حسب الشهادات، الإعدادات،
+                      الموارد، والشيفرة تلقائياً.
+                    </p>
                   </div>
                   <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-slate-700 rounded-2xl p-8 hover:border-primary/50 hover:bg-primary/5 cursor-pointer transition-all">
                     <Upload className="h-8 w-8 text-slate-400" />
                     <span className="text-sm font-semibold">اسحب APK هنا أو اضغط للرفع</span>
-                    <span className="text-[11px] text-slate-500">يدعم .apk .zip .xapk - معالجة محلية 100%</span>
-                    <input type="file" accept=".apk,.zip,.xapk" className="hidden" onChange={handleFileInput} />
+                    <span className="text-[11px] text-slate-500">
+                      يدعم .apk .zip .xapk - معالجة محلية 100%
+                    </span>
+                    <input
+                      type="file"
+                      accept=".apk,.zip,.xapk"
+                      className="hidden"
+                      onChange={handleFileInput}
+                    />
                   </label>
                   <div className="grid grid-cols-2 gap-3 text-left">
                     {[
@@ -861,7 +1239,10 @@ function AppForgeEditor() {
                       { icon: "🎨", t: "الموارد", d: "صور، layouts, strings" },
                       { icon: "💻", t: "الشيفرة", d: "DEX, Smali تحليل" },
                     ].map((f, i) => (
-                      <div key={i} className="p-3 rounded-xl bg-slate-800/40 border border-slate-800 text-left">
+                      <div
+                        key={i}
+                        className="p-3 rounded-xl bg-slate-800/40 border border-slate-800 text-left"
+                      >
                         <div className="text-lg">{f.icon}</div>
                         <div className="text-xs font-bold mt-1">{f.t}</div>
                         <div className="text-[11px] text-slate-500">{f.d}</div>
@@ -870,7 +1251,9 @@ function AppForgeEditor() {
                   </div>
                 </div>
               ) : (
-                <div className="text-slate-500 text-sm">اختر ملفاً من الجانب الأيسر لبدء التعديل</div>
+                <div className="text-slate-500 text-sm">
+                  اختر ملفاً من الجانب الأيسر لبدء التعديل
+                </div>
               )}
             </div>
           ) : centerTab === "visual" && activeFilePath === "AndroidManifest.xml" ? (
@@ -890,35 +1273,84 @@ function AppForgeEditor() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <Label className="text-xs">اسم الحزمة Package Name</Label>
-                        <Input value={manifestEdit.packageName} onChange={e => setManifestEdit(s => ({ ...s, packageName: e.target.value }))} className="bg-slate-900 border-slate-700 text-sm" />
+                        <Input
+                          value={manifestEdit.packageName}
+                          onChange={(e) =>
+                            setManifestEdit((s) => ({ ...s, packageName: e.target.value }))
+                          }
+                          className="bg-slate-900 border-slate-700 text-sm"
+                        />
                         <p className="text-[10px] text-slate-500">مثال: com.example.app</p>
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs">اسم التطبيق (اختياري)</Label>
-                        <Input value={apkInfo?.appName || ""} onChange={e => setApkInfo(prev => (prev ? { ...prev, appName: e.target.value } : prev))} className="bg-slate-900 border-slate-700 text-sm" placeholder="My App" />
+                        <Input
+                          value={apkInfo?.appName || ""}
+                          onChange={(e) =>
+                            setApkInfo((prev) =>
+                              prev ? { ...prev, appName: e.target.value } : prev,
+                            )
+                          }
+                          className="bg-slate-900 border-slate-700 text-sm"
+                          placeholder="My App"
+                        />
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs">رقم الإصدار Version Name</Label>
-                        <Input value={manifestEdit.versionName} onChange={e => setManifestEdit(s => ({ ...s, versionName: e.target.value }))} className="bg-slate-900 border-slate-700 text-sm" />
+                        <Input
+                          value={manifestEdit.versionName}
+                          onChange={(e) =>
+                            setManifestEdit((s) => ({ ...s, versionName: e.target.value }))
+                          }
+                          className="bg-slate-900 border-slate-700 text-sm"
+                        />
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs">كود الإصدار Version Code</Label>
-                        <Input value={manifestEdit.versionCode} onChange={e => setManifestEdit(s => ({ ...s, versionCode: e.target.value }))} className="bg-slate-900 border-slate-700 text-sm" type="number" />
+                        <Input
+                          value={manifestEdit.versionCode}
+                          onChange={(e) =>
+                            setManifestEdit((s) => ({ ...s, versionCode: e.target.value }))
+                          }
+                          className="bg-slate-900 border-slate-700 text-sm"
+                          type="number"
+                        />
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs">Min SDK</Label>
-                        <Input value={apkInfo?.minSdk || ""} onChange={e => setApkInfo(prev => (prev ? { ...prev, minSdk: e.target.value } : prev))} className="bg-slate-900 border-slate-700 text-sm" />
+                        <Input
+                          value={apkInfo?.minSdk || ""}
+                          onChange={(e) =>
+                            setApkInfo((prev) =>
+                              prev ? { ...prev, minSdk: e.target.value } : prev,
+                            )
+                          }
+                          className="bg-slate-900 border-slate-700 text-sm"
+                        />
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs">Target SDK</Label>
-                        <Input value={apkInfo?.targetSdk || ""} onChange={e => setApkInfo(prev => (prev ? { ...prev, targetSdk: e.target.value } : prev))} className="bg-slate-900 border-slate-700 text-sm" />
+                        <Input
+                          value={apkInfo?.targetSdk || ""}
+                          onChange={(e) =>
+                            setApkInfo((prev) =>
+                              prev ? { ...prev, targetSdk: e.target.value } : prev,
+                            )
+                          }
+                          className="bg-slate-900 border-slate-700 text-sm"
+                        />
                       </div>
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" onClick={handleSaveManifest} className="h-8">
                         <Save className="h-3.5 w-3.5 mr-1" /> حفظ
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => setCenterTab("code")} className="h-8">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCenterTab("code")}
+                        className="h-8"
+                      >
                         تحرير الكود الخام
                       </Button>
                     </div>
@@ -956,7 +1388,11 @@ function AppForgeEditor() {
                 <Card className="border-primary/20 bg-primary/5">
                   <CardContent className="p-4 text-xs text-primary/80 flex gap-2">
                     <Info className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>إذا كان AndroidManifest.xml في صيغة ثنائية binary، تحتاج إلى فك تشفير عبر apktool في الواجهة الخلفية. النسخة النصية الحالية قابلة للتعديل مباشرة إذا كانت decompiled مسبقاً.</span>
+                    <span>
+                      إذا كان AndroidManifest.xml في صيغة ثنائية binary، تحتاج إلى فك تشفير عبر
+                      apktool في الواجهة الخلفية. النسخة النصية الحالية قابلة للتعديل مباشرة إذا
+                      كانت decompiled مسبقاً.
+                    </span>
                   </CardContent>
                 </Card>
               </div>
@@ -966,7 +1402,7 @@ function AppForgeEditor() {
               {isImage && activeFile.rawContent ? (
                 <div className="space-y-4 text-center">
                   <img
-                    src={URL.createObjectURL(new Blob([activeFile.rawContent as Uint8Array]))}
+                    src={URL.createObjectURL(new Blob([Uint8Array.from(activeFile.rawContent)]))}
                     alt={activeFile.name}
                     className="max-w-full max-h-[60vh] mx-auto rounded-xl border border-slate-800 shadow-2xl"
                   />
@@ -976,7 +1412,9 @@ function AppForgeEditor() {
                 </div>
               ) : (
                 <div className="text-sm text-slate-400 whitespace-pre-wrap font-mono max-w-3xl mx-auto p-6 bg-slate-900/50 rounded-xl border border-slate-800 overflow-auto max-h-[80vh]">
-                  {typeof activeFile.content === "string" ? activeFile.content : "[Binary preview not available]"}
+                  {typeof activeFile.content === "string"
+                    ? activeFile.content
+                    : "[Binary preview not available]"}
                 </div>
               )}
             </div>
@@ -1001,7 +1439,9 @@ function AppForgeEditor() {
             <DiffEditor
               height="100%"
               original={originalCode}
-              modified={pendingCode || (typeof activeFile.content === "string" ? activeFile.content : "")}
+              modified={
+                pendingCode || (typeof activeFile.content === "string" ? activeFile.content : "")
+              }
               language={editorLanguage}
               theme="vs-dark"
               options={{
@@ -1020,7 +1460,12 @@ function AppForgeEditor() {
               <Button size="sm" onClick={applyChanges} className="rounded-full h-7 px-4">
                 <Check className="h-3.5 w-3.5 mr-1" /> تطبيق
               </Button>
-              <Button size="sm" variant="ghost" onClick={discardChanges} className="rounded-full h-7 px-4">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={discardChanges}
+                className="rounded-full h-7 px-4"
+              >
                 <X className="h-3.5 w-3.5 mr-1" /> إلغاء
               </Button>
             </div>
@@ -1030,7 +1475,11 @@ function AppForgeEditor() {
 
       {/* RIGHT SIDEBAR */}
       <aside className="w-[340px] border-l border-slate-800 flex flex-col bg-[#0f0f14]">
-        <Tabs value={rightTab} onValueChange={v => setRightTab(v as any)} className="flex-1 flex flex-col min-h-0">
+        <Tabs
+          value={rightTab}
+          onValueChange={(v) => setRightTab(v as any)}
+          className="flex-1 flex flex-col min-h-0"
+        >
           <TabsList className="grid grid-cols-3 m-2 bg-slate-800/50 h-8">
             <TabsTrigger value="info" className="text-[11px] h-6">
               <Info className="h-3 w-3 mr-1" /> معلومات
@@ -1059,13 +1508,40 @@ function AppForgeEditor() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-0 space-y-2 text-[11px]">
-                      <div className="flex justify-between"><span className="text-slate-400">الحزمة</span><span className="font-mono truncate max-w-[140px]">{apkInfo.packageName}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">الإصدار</span><span>{apkInfo.versionName} ({apkInfo.versionCode})</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Min SDK</span><span>{apkInfo.minSdk}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Target</span><span>{apkInfo.targetSdk}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">DEX</span><span>{apkInfo.dexCount} ملف</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Native</span><span>{apkInfo.hasNativeLibs ? "نعم" : "لا"} {apkInfo.architectures.join(", ")}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">قابل للتعديل</span><span>{apkInfo.debuggable ? "Debuggable" : "مُنتج"}</span></div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">الحزمة</span>
+                        <span className="font-mono truncate max-w-[140px]">
+                          {apkInfo.packageName}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">الإصدار</span>
+                        <span>
+                          {apkInfo.versionName} ({apkInfo.versionCode})
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Min SDK</span>
+                        <span>{apkInfo.minSdk}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Target</span>
+                        <span>{apkInfo.targetSdk}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">DEX</span>
+                        <span>{apkInfo.dexCount} ملف</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Native</span>
+                        <span>
+                          {apkInfo.hasNativeLibs ? "نعم" : "لا"} {apkInfo.architectures.join(", ")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">قابل للتعديل</span>
+                        <span>{apkInfo.debuggable ? "Debuggable" : "مُنتج"}</span>
+                      </div>
                     </CardContent>
                   </Card>
 
@@ -1074,10 +1550,17 @@ function AppForgeEditor() {
                       <CardTitle className="text-xs">التصنيفات - Categories</CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-0 space-y-1.5">
-                      {categoryStats.map(s => (
-                        <div key={s.category} className="flex items-center justify-between text-[11px]">
-                          <span className="flex items-center gap-1.5">{CATEGORY_META[s.category].icon} {CATEGORY_META[s.category].labelAr}</span>
-                          <span className="text-slate-400">{s.count} • {formatBytes(s.totalSize)}</span>
+                      {categoryStats.map((s) => (
+                        <div
+                          key={s.category}
+                          className="flex items-center justify-between text-[11px]"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {CATEGORY_META[s.category].icon} {CATEGORY_META[s.category].labelAr}
+                          </span>
+                          <span className="text-slate-400">
+                            {s.count} • {formatBytes(s.totalSize)}
+                          </span>
                         </div>
                       ))}
                     </CardContent>
@@ -1089,12 +1572,20 @@ function AppForgeEditor() {
                     </CardHeader>
                     <CardContent className="p-3 pt-0 space-y-3 text-[11px] max-h-[200px] overflow-auto">
                       <div>
-                        <div className="font-bold mb-1">Activities ({apkInfo.activities.length})</div>
+                        <div className="font-bold mb-1">
+                          Activities ({apkInfo.activities.length})
+                        </div>
                         <div className="space-y-0.5 text-slate-400">
-                          {apkInfo.activities.slice(0, 5).map(a => (
-                            <div key={a.name} className="truncate">• {a.name}</div>
+                          {apkInfo.activities.slice(0, 5).map((a) => (
+                            <div key={a.name} className="truncate">
+                              • {a.name}
+                            </div>
                           ))}
-                          {apkInfo.activities.length > 5 && <div className="text-[10px]">+ {apkInfo.activities.length - 5} المزيد</div>}
+                          {apkInfo.activities.length > 5 && (
+                            <div className="text-[10px]">
+                              + {apkInfo.activities.length - 5} المزيد
+                            </div>
+                          )}
                         </div>
                       </div>
                     </CardContent>
@@ -1108,10 +1599,16 @@ function AppForgeEditor() {
                       <CardContent className="p-3 pt-0 text-[11px] space-y-1">
                         <div className="truncate font-mono">{activeFile.path}</div>
                         <div className="flex gap-2">
-                          <Badge variant="outline" className="text-[10px]">{formatBytes(activeFile.size)}</Badge>
-                          <Badge variant="outline" className="text-[10px]">{activeFile.category}</Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {formatBytes(activeFile.size)}
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {activeFile.category}
+                          </Badge>
                         </div>
-                        <div className="text-slate-400">{activeFile.editable ? "قابل للتعديل" : "قراءة فقط - Binary"}</div>
+                        <div className="text-slate-400">
+                          {activeFile.editable ? "قابل للتعديل" : "قراءة فقط - Binary"}
+                        </div>
                       </CardContent>
                     </Card>
                   )}
@@ -1123,7 +1620,11 @@ function AppForgeEditor() {
           <TabsContent value="perms" className="flex-1 mt-0 overflow-hidden flex flex-col">
             <div className="p-3 border-b border-slate-800 space-y-2">
               <div className="flex gap-2">
-                <Input id="new-perm" placeholder="android.permission.CAMERA" className="h-8 text-xs bg-slate-900 border-slate-700" />
+                <Input
+                  id="new-perm"
+                  placeholder="android.permission.CAMERA"
+                  className="h-8 text-xs bg-slate-900 border-slate-700"
+                />
                 <Button
                   size="sm"
                   className="h-8"
@@ -1139,8 +1640,18 @@ function AppForgeEditor() {
                 </Button>
               </div>
               <div className="flex flex-wrap gap-1">
-                {["android.permission.INTERNET", "android.permission.CAMERA", "android.permission.ACCESS_FINE_LOCATION", "android.permission.READ_CONTACTS"].map(p => (
-                  <Badge key={p} variant="outline" className="text-[9px] cursor-pointer hover:bg-slate-800" onClick={() => handleAddPermission(p)}>
+                {[
+                  "android.permission.INTERNET",
+                  "android.permission.CAMERA",
+                  "android.permission.ACCESS_FINE_LOCATION",
+                  "android.permission.READ_CONTACTS",
+                ].map((p) => (
+                  <Badge
+                    key={p}
+                    variant="outline"
+                    className="text-[9px] cursor-pointer hover:bg-slate-800"
+                    onClick={() => handleAddPermission(p)}
+                  >
                     + {p.split(".").pop()}
                   </Badge>
                 ))}
@@ -1148,20 +1659,38 @@ function AppForgeEditor() {
             </div>
             <ScrollArea className="flex-1 p-2">
               {!apkInfo ? (
-                <div className="text-center py-8 text-xs text-slate-500">حمّل APK لعرض الصلاحيات</div>
+                <div className="text-center py-8 text-xs text-slate-500">
+                  حمّل APK لعرض الصلاحيات
+                </div>
               ) : (
                 <div className="space-y-1.5">
-                  {apkInfo.permissions.length === 0 && <div className="text-xs text-slate-500 text-center py-4">لا توجد صلاحيات</div>}
-                  {apkInfo.permissions.map(perm => (
-                    <div key={perm.name} className={`p-2.5 rounded-lg border flex items-start justify-between gap-2 ${perm.isDangerous ? "bg-red-500/5 border-red-500/20" : "bg-slate-800/30 border-slate-800"}`}>
+                  {apkInfo.permissions.length === 0 && (
+                    <div className="text-xs text-slate-500 text-center py-4">لا توجد صلاحيات</div>
+                  )}
+                  {apkInfo.permissions.map((perm) => (
+                    <div
+                      key={perm.name}
+                      className={`p-2.5 rounded-lg border flex items-start justify-between gap-2 ${perm.isDangerous ? "bg-red-500/5 border-red-500/20" : "bg-slate-800/30 border-slate-800"}`}
+                    >
                       <div className="min-w-0 flex-1">
                         <div className="text-[11px] font-mono truncate flex items-center gap-1">
-                          {perm.isDangerous && <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />}
+                          {perm.isDangerous && (
+                            <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+                          )}
                           {perm.name}
                         </div>
-                        {perm.isDangerous && <div className="text-[10px] text-amber-400/80 mt-0.5">صلاحية خطرة - Dangerous</div>}
+                        {perm.isDangerous && (
+                          <div className="text-[10px] text-amber-400/80 mt-0.5">
+                            صلاحية خطرة - Dangerous
+                          </div>
+                        )}
                       </div>
-                      <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => handleRemovePermission(perm.name)}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => handleRemovePermission(perm.name)}
+                      >
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
@@ -1171,7 +1700,9 @@ function AppForgeEditor() {
             </ScrollArea>
             <div className="p-2 border-t border-slate-800 bg-slate-900/30">
               <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                <ShieldCheck className="h-3 w-3" /> {apkInfo?.permissions.filter(p => p.isDangerous).length || 0} خطرة من أصل {apkInfo?.permissions.length || 0}
+                <ShieldCheck className="h-3 w-3" />{" "}
+                {apkInfo?.permissions.filter((p) => p.isDangerous).length || 0} خطرة من أصل{" "}
+                {apkInfo?.permissions.length || 0}
               </div>
             </div>
           </TabsContent>
@@ -1180,15 +1711,29 @@ function AppForgeEditor() {
             <ScrollArea className="flex-1 p-3 bg-[#0a0a0f]">
               <div className="space-y-3">
                 {chatMessages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[90%] rounded-2xl px-3 py-2 text-[12px] leading-relaxed whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-white rounded-br-sm" : "bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm"}`}>
+                  <div
+                    key={i}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[90%] rounded-2xl px-3 py-2 text-[12px] leading-relaxed whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-white rounded-br-sm" : "bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm"}`}
+                    >
                       {msg.content}
                       {msg.role === "ai" && pendingCode && i === chatMessages.length - 1 && (
                         <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-700">
-                          <Button size="sm" onClick={applyChanges} className="h-6 text-[10px] rounded-full">
+                          <Button
+                            size="sm"
+                            onClick={applyChanges}
+                            className="h-6 text-[10px] rounded-full"
+                          >
                             <Check className="h-3 w-3 mr-1" /> تطبيق
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={discardChanges} className="h-6 text-[10px] rounded-full">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={discardChanges}
+                            className="h-6 text-[10px] rounded-full"
+                          >
                             <X className="h-3 w-3 mr-1" /> إلغاء
                           </Button>
                         </div>
@@ -1206,25 +1751,55 @@ function AppForgeEditor() {
               </div>
             </ScrollArea>
 
-            <form onSubmit={sendChatMessage} className="p-2 border-t border-slate-800 bg-[#0f0f14] flex gap-2">
-              <Input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="اسأل عن الملف أو اطلب تعديل... / Ask AI" className="h-9 bg-slate-900 border-slate-700 text-xs flex-1" />
+            <form
+              onSubmit={sendChatMessage}
+              className="p-2 border-t border-slate-800 bg-[#0f0f14] flex gap-2"
+            >
+              <Input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="اسأل عن الملف أو اطلب تعديل... / Ask AI"
+                className="h-9 bg-slate-900 border-slate-700 text-xs flex-1"
+              />
               <Button type="submit" size="icon" className="h-9 w-9 shrink-0">
                 <Send className="h-4 w-4" />
               </Button>
             </form>
 
             <div className="p-2 border-t border-slate-800 grid grid-cols-2 gap-1.5">
-              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("اشرح لي هذا الملف")}>
-                اشرح الملف
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={() => setChatInput("حلل التطبيق كاملاً وحدد أهم المخاطر والتحسينات")}
+              >
+                تحليل شامل
               </Button>
-              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("كيف أعدّل هذا الملف لإضافة ميزة؟")}>
-                اقترح تحسين
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={() => setChatInput("حلل الشهادات والتوقيع وهل هي Debug أم Release")}
+              >
+                الشهادات
               </Button>
-              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("ابحث عن مشاكل أمنية في هذا الكود")}>
-                فحص أمني
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={() =>
+                  setChatInput("أين توجد مكتبات الإعلانات مثل AdMob وكيف أراجعها بأمان؟")
+                }
+              >
+                الإعلانات
               </Button>
-              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("جمّل هذا الكود")}>
-                جمّل الكود
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={() => setChatInput("اشرح لي هذا الملف واقترح تحسينات آمنة")}
+              >
+                الملف الحالي
               </Button>
             </div>
           </TabsContent>
@@ -1235,34 +1810,87 @@ function AppForgeEditor() {
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
         <DialogContent className="sm:max-w-[440px] bg-[#0f0f14] border-slate-800 text-slate-100">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Key className="h-4 w-4" /> إعدادات الذكاء الاصطناعي</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs">اختر المزود وأدخل المفتاح لاستخدام المساعد الذكي</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-4 w-4" /> إعدادات الذكاء الاصطناعي
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs">
+              اختر المزود وأدخل المفتاح لاستخدام المساعد الذكي
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
               <Label className="text-xs">المزود Provider</Label>
-              <Select value={aiSettings.provider} onValueChange={(v: AIProvider) => setAiSettings({ ...aiSettings, provider: v })}>
-                <SelectTrigger className="bg-slate-900 border-slate-700"><SelectValue /></SelectTrigger>
+              <Select
+                value={aiSettings.provider}
+                onValueChange={(v: AIProvider) => setAiSettings({ ...aiSettings, provider: v })}
+              >
+                <SelectTrigger className="bg-slate-900 border-slate-700">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent className="bg-slate-900 border-slate-700 text-slate-100">
-                  <SelectItem value="gemini">Google Gemini (مجاني)</SelectItem>
-                  <SelectItem value="groq">Groq (سريع)</SelectItem>
-                  <SelectItem value="siliconflow">SiliconFlow (Qwen)</SelectItem>
+                  {(Object.values(PROVIDERS) as Array<(typeof PROVIDERS)[AIProvider]>).map(
+                    (provider) => (
+                      <SelectItem key={provider.id} value={provider.id}>
+                        {provider.icon} {provider.labelAr}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
-              <Label className="text-xs flex justify-between">
-                <span>API Key</span>
-                <a href={PROVIDER_LINKS[aiSettings.provider]} target="_blank" className="text-primary text-[10px] hover:underline">احصل على المفتاح</a>
-              </Label>
-              <Input type="password" placeholder={`${aiSettings.provider} api key`} value={aiSettings.apiKey} onChange={e => setAiSettings({ ...aiSettings, apiKey: e.target.value })} className="bg-slate-900 border-slate-700" />
-            </div>
             <Card className="bg-primary/5 border-primary/20">
-              <CardContent className="p-3 text-[11px] text-slate-400">المفتاح يُخزن محلياً فقط في المتصفح. لا يتم إرساله لخوادمنا.</CardContent>
+              <CardContent className="p-3 text-[11px] space-y-1">
+                <div className="font-bold text-slate-200">
+                  {PROVIDERS[aiSettings.provider].icon} {PROVIDERS[aiSettings.provider].label}
+                </div>
+                <div className="text-slate-400">{PROVIDERS[aiSettings.provider].description}</div>
+                <div className="text-emerald-400">{PROVIDERS[aiSettings.provider].freeQuota}</div>
+              </CardContent>
             </Card>
+            {aiSettings.provider !== "demo" ? (
+              <div className="grid gap-2">
+                <Label className="text-xs flex justify-between">
+                  <span>API Key</span>
+                  <a
+                    href={PROVIDER_LINKS[aiSettings.provider]}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary text-[10px] hover:underline"
+                  >
+                    احصل على المفتاح
+                  </a>
+                </Label>
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  placeholder={`${aiSettings.provider} api key`}
+                  value={aiSettings.apiKey}
+                  onChange={(e) => setAiSettings({ ...aiSettings, apiKey: e.target.value })}
+                  className="bg-slate-900 border-slate-700"
+                />
+                <p className="text-[10px] text-slate-500">
+                  المفتاح يُخزن محلياً في هذا المتصفح، ويُرسل مباشرة إلى مزود AI المختار عند
+                  الاستخدام.
+                </p>
+              </div>
+            ) : (
+              <Card className="bg-emerald-500/5 border-emerald-500/20">
+                <CardContent className="p-3 text-[11px] text-emerald-300">
+                  Demo AI لا يحتاج مفتاحاً ولا يرسل ملفات APK إلى خدمة خارجية.
+                </CardContent>
+              </Card>
+            )}
           </div>
           <DialogFooter>
-            <Button onClick={() => { localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify(aiSettings)); setShowSettings(false); toast.success("تم الحفظ"); }}>حفظ</Button>
+            <Button
+              onClick={() => {
+                localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify(aiSettings));
+                setShowSettings(false);
+                toast.success("تم الحفظ");
+              }}
+            >
+              حفظ
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

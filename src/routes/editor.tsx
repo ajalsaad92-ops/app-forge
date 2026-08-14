@@ -198,7 +198,50 @@ function AppForgeEditor() {
     setIsLoading(true);
     const toastId = toast.loading(`جاري تحليل ${file.name}... Analyzing ${file.name}`);
     try {
-      const result = await apkProcessor.loadAPK(file);
+      // 1. Try server-side decompile first for full SMALI/XML support
+      let result;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await fetch('/api/apk/decompile', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (response.ok) {
+          const serverData = await response.json();
+          // Map server results back to APKFile structure
+          const mappedFiles: APKFile[] = serverData.files.map((f: any) => ({
+            name: f.path.split('/').pop() || f.path,
+            path: f.path,
+            content: f.content || "",
+            type: f.isBinary ? "binary" : "text",
+            category: getCategoryFromPath(f.path),
+            size: f.content ? f.content.length : 0,
+            editable: !f.isBinary && isEditableFile(f.path, getCategoryFromPath(f.path)),
+          }));
+          
+          setApkFiles(mappedFiles);
+          // Set internal processor state as well
+          apkProcessor.setAllFiles(mappedFiles);
+          
+          // Heuristic to find manifest and other info
+          const manifestFile = mappedFiles.find(f => f.path === "AndroidManifest.xml");
+          if (manifestFile && typeof manifestFile.content === "string") {
+            const info = await apkProcessor.parseManifest(manifestFile.content);
+            setApkInfo(info);
+          }
+          
+          toast.success("تم فك التطبيق (Decompiled) بنجاح!", { id: toastId });
+          setIsLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("Server decompile failed, falling back to client-side JSZip", e);
+      }
+
+      // 2. Fallback to client-side JSZip (original behavior)
+      result = await apkProcessor.loadAPK(file);
       setApkFiles(apkProcessor.getAllFiles());
       setApkInfo(result.info);
       setCertificates(result.certificates);
@@ -215,16 +258,6 @@ function AppForgeEditor() {
         setActiveFilePath(manifest);
         setOpenTabs(prev => (prev.includes(manifest) ? prev : [manifest, ...prev].slice(0, 10)));
       }
-
-      // Persist meta (without raw binary for storage limit)
-      try {
-        await set(APK_META_KEY, {
-          info: result.info,
-          certs: result.certificates,
-          stats: result.stats,
-          files: apkProcessor.getAllFiles().map(f => ({ ...f, rawContent: undefined, content: typeof f.content === "string" ? f.content.slice(0, 5000) : undefined })),
-        });
-      } catch {}
 
       toast.success(`تم تحليل APK بنجاح! ${result.files.length} ملف`, { id: toastId });
       setLeftTab("categories");

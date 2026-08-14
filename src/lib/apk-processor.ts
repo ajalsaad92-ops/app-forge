@@ -83,23 +83,6 @@ export interface CertificateInfo {
   isDebug?: boolean | null;
 }
 
-export interface CertificateInfo {
-  fileName: string;
-  path: string;
-  type: 'RSA' | 'DSA' | 'EC' | 'UNKNOWN';
-  signatureVersion?: string;
-  issuer?: string;
-  subject?: string;
-  serialNumber?: string;
-  validFrom?: string;
-  validTo?: string;
-  fingerprintMD5?: string;
-  fingerprintSHA1?: string;
-  fingerprintSHA256?: string;
-  size: number;
-  isDebug?: boolean;
-}
-
 export interface CategoryStats {
   category: APKCategory;
   count: number;
@@ -587,10 +570,10 @@ export class APKProcessor {
       packageName: manifestInfo.packageName || 'com.unknown.app',
       versionName: manifestInfo.versionName || '1.0.0',
       versionCode: manifestInfo.versionCode || '1',
-      appName: manifestInfo.appName,
+      appName: manifestInfo.appName || null,
       minSdk: manifestInfo.minSdk || '21',
       targetSdk: manifestInfo.targetSdk || '34',
-      compileSdk: manifestInfo.compileSdk,
+      compileSdk: manifestInfo.compileSdk || null,
       debuggable: manifestInfo.debuggable || false,
       allowBackup: manifestInfo.allowBackup ?? true,
       permissions: manifestInfo.permissions || [],
@@ -600,7 +583,7 @@ export class APKProcessor {
       providers: manifestInfo.providers || [],
       features: manifestInfo.features || [],
       usesSdk: manifestInfo.usesSdk || [],
-      icon: manifestInfo.icon,
+      icon: manifestInfo.icon || null,
       fileSize: originalFile.size,
       fileCount: this.files.size,
       dexCount: dexFiles.length,
@@ -645,8 +628,8 @@ export class APKProcessor {
           isDebug,
           issuer: isDebug ? 'CN=Android Debug, O=Android, C=US' : 'Unknown (parse DER)',
           subject: isDebug ? 'CN=Android Debug, O=Android, C=US' : 'Unknown',
-          validFrom: isDebug ? 'Debug cert' : undefined,
-          validTo: isDebug ? 'Debug cert - 30 years' : undefined,
+          validFrom: isDebug ? 'Debug cert' : null,
+          validTo: isDebug ? 'Debug cert - 30 years' : null,
         });
       } else if (path.endsWith('.MF') || path.endsWith('.SF')) {
         certs.push({
@@ -654,7 +637,7 @@ export class APKProcessor {
           path,
           type: 'UNKNOWN',
           size: file.size,
-          fingerprintSHA256: typeof file.content === 'string' ? file.content.slice(0,200) : undefined,
+          fingerprintSHA256: typeof file.content === 'string' ? file.content.slice(0,200) : null,
         });
       }
     }

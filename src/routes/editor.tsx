@@ -6,43 +6,30 @@ import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
-  Trash2, 
-  Play, 
   MessageSquare, 
-  ChevronRight, 
-  ChevronDown,
   Send,
-  Loader2,
-  Settings,
-  Split,
-  Key,
   Check,
   X,
   Upload,
-  Download,
-  Search,
   Wrench,
   Package,
   ShieldCheck,
   ShieldAlert,
   Info,
-  Smartphone
+  Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { analyzeCode } from "@/lib/analysis.functions";
 import {
   getCodeAction,
-  auditCodebase,
   askAboutAPK,
   buildAPKContext,
   isAppWideQuestion,
   type AIProvider,
   type AISettings,
   PROVIDERS,
-  PROVIDER_LINKS,
 } from "@/lib/ai-service";
 import {
   apkProcessor,
@@ -58,7 +45,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -73,7 +59,7 @@ import {
 } from "@/components/ui/select";
 import { SetupGuide } from "@/components/SetupGuide";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/editor")({
@@ -84,23 +70,10 @@ export const Route = createFileRoute("/editor")({
   ),
 });
 
-interface FileSystemItem {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  content?: string | Uint8Array | undefined;
-  parentId: string | null;
-}
-
-const STORAGE_KEY = "APPFORGE_FILES_V2";
 const APK_META_KEY = "APPFORGE_APK_META";
 
 function AppForgeEditor() {
-  // Core Workspace State
-  const [files, setFiles] = React.useState<FileSystemItem[]>([]);
-  const [activeFileId, setActiveFileId] = React.useState<string>("");
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set());
   
   // APK Processor State
   const [apkFiles, setApkFiles] = React.useState<APKFile[]>([]);
@@ -121,7 +94,6 @@ function AppForgeEditor() {
   const [showSettings, setShowSettings] = React.useState(false);
   const [showSetup, setShowSetup] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
-  const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
 
   // AI & Chat State
   const [aiSettings, setAiSettings] = React.useState<AISettings>({
@@ -167,25 +139,12 @@ function AppForgeEditor() {
           }
         }
 
-        const storedFiles = await get<FileSystemItem[]>(STORAGE_KEY);
-        if (storedFiles && storedFiles.length > 0) {
-          setFiles(storedFiles);
-        }
       } catch (err) {
         console.error("Failed to load from IndexedDB", err);
-      } finally {
-        setIsFileSystemLoaded(true);
       }
     };
     init();
   }, []);
-
-  // Persistence
-  React.useEffect(() => {
-    if (isFileSystemLoaded) {
-      set(STORAGE_KEY, files).catch(err => console.error("Save failed", err));
-    }
-  }, [files, isFileSystemLoaded]);
 
   // Derived State
   const activeFile = React.useMemo(() => {
@@ -295,22 +254,6 @@ function AppForgeEditor() {
       toast.success("تم إعادة البناء وتنزيل APK", { id: toastId });
     } catch (err: any) {
       toast.error(`فشل البناء: ${err.message}`, { id: toastId });
-    }
-  };
-
-  const runAnalysis = async () => {
-    if (!activeFile || typeof activeFile.content !== 'string') return;
-    setIsAnalyzing(true);
-    try {
-      const result = await analyzeCode({ data: { code: activeFile.content, fileName: activeFile.name } });
-      setChatMessages(prev => [...prev, { 
-        role: 'ai', 
-        content: `**تحليل ${activeFile.name}:**\n${result.summary}\n\n**اقتراحات:**\n${result.suggestions.map(s => `• ${s}`).join('\n')}` 
-      }]);
-    } catch {
-      toast.error("فشل التحليل");
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
@@ -464,6 +407,9 @@ function AppForgeEditor() {
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowSetup(true)}>
               <Wrench className="h-3 w-3 mr-1" /> Setup
             </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowSettings(true)}>
+              <Settings className="h-3 w-3 mr-1" /> AI Settings
+            </Button>
             <Button size="sm" className="h-7 text-xs" onClick={handleRebuild}>Build</Button>
           </div>
         </header>
@@ -548,7 +494,7 @@ function AppForgeEditor() {
         </Tabs>
       </aside>
 
-      {/* Settings */}
+      {/* AI Settings */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
         <DialogContent className="bg-slate-900 border-slate-800">
           <DialogHeader><DialogTitle>AI Settings</DialogTitle></DialogHeader>

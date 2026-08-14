@@ -173,16 +173,6 @@ export const PROVIDERS: Record<AIProvider, ProviderInfo> = {
   },
 };
 
-export const PROVIDER_LINKS = Object.fromEntries(
-  Object.values(PROVIDERS).map((p) => [p.id, p.link]),
-) as Record<AIProvider, string>;
-export const PROVIDER_MODELS = Object.fromEntries(
-  Object.values(PROVIDERS).map((p) => [p.id, p.model]),
-) as Record<AIProvider, string>;
-export const PROVIDER_BASE_URLS = Object.fromEntries(
-  Object.values(PROVIDERS).map((p) => [p.id, p.baseUrl]),
-) as Record<AIProvider, string | null>;
-
 function apiError(body: string, status: number): Error {
   try {
     const parsed = JSON.parse(body);
@@ -399,11 +389,4 @@ export async function getCodeAction(
     explanation: `${result.slice(0, 2500)}\n\nملاحظة: لم يُرجع المزود تعديلاً بصيغة JSON صالحة، لذلك لم يتغير الملف.`,
     modifiedCode: code,
   };
-}
-
-export async function auditCodebase(settings: AISettings): Promise<string> {
-  return callAI(
-    settings,
-    "Analyze the APP-FORGE React/Vite APK editor architecture. Identify security, reliability, and UX improvements.",
-  );
 }

@@ -47,6 +47,7 @@ import {
   CheckCircle,
   AlertTriangle,
   Info,
+  Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -889,8 +890,14 @@ function AppForgeEditor() {
               <Play className="h-3 w-3 mr-1" />
               بناء APK
             </Button>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/50 border border-slate-700/50">
+              <div className={`h-1.5 w-1.5 rounded-full ${apkFiles.length > 0 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-slate-600'}`} />
+              <span className="text-[9px] font-bold text-slate-300 uppercase tracking-tighter">
+                {apkFiles.length > 0 ? "Tools Online" : "Tools Offline"}
+              </span>
+            </div>
             <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSetup(true)} title="Setup">
-              <Settings className="h-3.5 w-3.5" />
+              <Terminal className="h-3.5 w-3.5 text-primary" />
             </Button>
             <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSettings(true)}>
               <Key className="h-3.5 w-3.5" />

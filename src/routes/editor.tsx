@@ -6,44 +6,27 @@ import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
-  FolderPlus, 
-  FilePlus, 
   Trash2, 
   Play, 
   MessageSquare, 
   ChevronRight, 
   ChevronDown,
-  Code2,
   Send,
   Loader2,
-  Terminal,
   Settings,
   Split,
-  Eye,
   Key,
   Check,
   X,
-  Edit2,
   Upload,
   Download,
   Search,
-  Folder,
-  Cpu,
-  Layers,
-  Lock,
-  Image as ImageIcon,
-  FileJson,
-  FileText,
-  Save,
-  Database,
-  Info,
-  Smartphone,
+  Wrench,
+  Package,
   ShieldCheck,
   ShieldAlert,
-  Shield,
-  AlertTriangle,
-  Wrench,
-  Package
+  Info,
+  Smartphone
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -52,7 +35,6 @@ import { toast } from "sonner";
 import { analyzeCode } from "@/lib/analysis.functions";
 import {
   getCodeAction,
-  callAI,
   auditCodebase,
   askAboutAPK,
   buildAPKContext,
@@ -64,13 +46,11 @@ import {
 } from "@/lib/ai-service";
 import {
   apkProcessor,
-  exportToZip,
   type APKFile,
   type APKInfo,
   type CertificateInfo,
   type CategoryStats,
   type APKCategory,
-  type APKPermission,
   CATEGORY_META,
   formatBytes,
   getFileLanguage,
@@ -142,7 +122,6 @@ function AppForgeEditor() {
   const [showSetup, setShowSetup] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
   const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
-  const [isBackendLoading, setIsBackendLoading] = React.useState<{[key: string]: boolean}>({});
 
   // AI & Chat State
   const [aiSettings, setAiSettings] = React.useState<AISettings>({
@@ -158,12 +137,6 @@ function AppForgeEditor() {
   const [chatInput, setChatInput] = React.useState("");
   const [originalCode, setOriginalCode] = React.useState<string>("");
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
-
-  const [manifestEdit, setManifestEdit] = React.useState({
-    packageName: "",
-    versionName: "",
-    versionCode: "",
-  });
 
   // Initialization
   React.useEffect(() => {
@@ -248,11 +221,6 @@ function AppForgeEditor() {
       setApkInfo(result.info);
       setCertificates(result.certificates);
       setCategoryStats(result.stats);
-      setManifestEdit({
-        packageName: result.info.packageName,
-        versionName: result.info.versionName,
-        versionCode: result.info.versionCode,
-      });
 
       const manifest = result.files.find(p => p === "AndroidManifest.xml") || result.files[0] || "";
       if (manifest) {
@@ -311,11 +279,6 @@ function AppForgeEditor() {
     const content = value || "";
     apkProcessor.updateFileContent(activeFilePath, content);
     setApkFiles(prev => prev.map(f => f.path === activeFilePath ? { ...f, content } : f));
-  };
-
-  const handleSaveManifest = () => {
-    toast.success("Manifest changes prepared for rebuild");
-    setCenterTab("code");
   };
 
   const handleRebuild = async () => {
@@ -402,19 +365,6 @@ function AppForgeEditor() {
   const discardChanges = () => {
     setPendingCode(null);
     setViewMode("editor");
-  };
-
-  const callBackend = async (endpoint: string, label: string) => {
-    setIsBackendLoading(prev => ({ ...prev, [label]: true }));
-    try {
-      const response = await fetch(`http://localhost:3000/api/${endpoint}`, { method: 'POST' });
-      if (response.ok) toast.success(`${label} successful`);
-      else toast.error(`${label} failed`);
-    } catch {
-      toast.error(`Local backend connection failed`);
-    } finally {
-      setIsBackendLoading(prev => ({ ...prev, [label]: false }));
-    }
   };
 
   return (
@@ -519,7 +469,7 @@ function AppForgeEditor() {
         </header>
 
         <div className="flex-1 relative overflow-hidden">
-          {centerTab === "code" && activeFile ? (
+          {activeFile ? (
             viewMode === "editor" ? (
               <Editor
                 height="100%"
@@ -538,10 +488,6 @@ function AppForgeEditor() {
                 language={getFileLanguage(activeFile.name)}
               />
             )
-          ) : centerTab === "preview" && activeFile ? (
-            <div className="p-4 overflow-auto h-full">
-               {typeof activeFile.content === "string" ? <pre className="text-xs">{activeFile.content}</pre> : "Preview not available"}
-            </div>
           ) : (
              <div className="h-full flex items-center justify-center text-slate-500">Select a file</div>
           )}

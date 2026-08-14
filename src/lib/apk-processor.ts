@@ -1,6 +1,9 @@
 import JSZip from "jszip";
 import pLimit from "p-limit";
 
+export { getCategoryFromPath, isEditableFile };
+
+
 export type APKCategory = 
   | 'manifest' 
   | 'code' 
@@ -369,8 +372,8 @@ function getCategoryFromPath(path: string): APKCategory {
 function isEditableFile(path: string, category: APKCategory): boolean {
   const lower = path.toLowerCase();
   if (category === 'security') return false; // Don't allow editing certs directly
-  if (lower.endsWith('.so') || lower.endsWith('.dex') || lower.endsWith('.arsc')) return false;
-  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif')) return false;
+  if (lower.endsWith('.so') || lower.endsWith('.dex') || lower.endsWith('.arsc') || lower.endsWith('.apk')) return false;
+  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif') || lower.endsWith('.ico')) return false;
   return true;
 }
 
@@ -445,6 +448,37 @@ export class APKProcessor {
   private apkInfo: APKInfo | null = null;
   private certificates: CertificateInfo[] = [];
   private categoryStats: CategoryStats[] = [];
+
+  setAllFiles(files: APKFile[]) {
+    this.files.clear();
+    files.forEach(f => this.files.set(f.path, f));
+    this.categoryStats = this.computeStats();
+  }
+
+  async parseManifest(content: string): Promise<APKInfo> {
+    const partial = parseXmlManifest(content);
+    const info: APKInfo = {
+      packageName: partial.packageName || "unknown",
+      versionName: partial.versionName || "1.0",
+      versionCode: partial.versionCode || "1",
+      permissions: partial.permissions || [],
+      activities: partial.activities || [],
+      services: partial.services || [],
+      receivers: partial.receivers || [],
+      providers: partial.providers || [],
+      features: partial.features || [],
+      usesSdk: partial.usesSdk || [],
+      fileSize: 0,
+      fileCount: this.files.size,
+      dexCount: Array.from(this.files.keys()).filter(f => f.endsWith('.dex')).length,
+      hasNativeLibs: Array.from(this.files.keys()).some(f => f.startsWith('lib/')),
+      architectures: [],
+      isSigned: Array.from(this.files.keys()).some(f => f.startsWith('META-INF/')),
+    };
+    this.apkInfo = info;
+    return info;
+  }
+
 
   async loadAPK(file: File): Promise<{ files: string[]; info: APKInfo; certificates: CertificateInfo[]; stats: CategoryStats[] }> {
     this.zip = await JSZip.loadAsync(file);

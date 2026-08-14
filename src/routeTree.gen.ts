@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EditorRouteImport } from './routes/editor'
+import { Route as ApiApkDecompileRouteImport } from './routes/api/apk/decompile'
+import { Route as ApiApkRebuildRouteImport } from './routes/api/apk/rebuild'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +24,49 @@ const EditorRoute = EditorRouteImport.update({
   path: '/editor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiApkDecompileRoute = ApiApkDecompileRouteImport.update({
+  id: '/api/apk/decompile',
+  path: '/api/apk/decompile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiApkRebuildRoute = ApiApkRebuildRouteImport.update({
+  id: '/api/apk/rebuild',
+  path: '/api/apk/rebuild',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/editor': typeof EditorRoute
+  '/api/apk/decompile': typeof ApiApkDecompileRoute
+  '/api/apk/rebuild': typeof ApiApkRebuildRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/editor': typeof EditorRoute
+  '/api/apk/decompile': typeof ApiApkDecompileRoute
+  '/api/apk/rebuild': typeof ApiApkRebuildRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/editor': typeof EditorRoute
+  '/api/apk/decompile': typeof ApiApkDecompileRoute
+  '/api/apk/rebuild': typeof ApiApkRebuildRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/editor'
+  fullPaths: '/' | '/editor' | '/api/apk/decompile' | '/api/apk/rebuild'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/editor'
-  id: '__root__' | '/' | '/editor'
+  to: '/' | '/editor' | '/api/apk/decompile' | '/api/apk/rebuild'
+  id: '__root__' | '/' | '/editor' | '/api/apk/decompile' | '/api/apk/rebuild'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EditorRoute: typeof EditorRoute
+  ApiApkDecompileRoute: typeof ApiApkDecompileRoute
+  ApiApkRebuildRoute: typeof ApiApkRebuildRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +85,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/apk/decompile': {
+      id: '/api/apk/decompile'
+      path: '/api/apk/decompile'
+      fullPath: '/api/apk/decompile'
+      preLoaderRoute: typeof ApiApkDecompileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/apk/rebuild': {
+      id: '/api/apk/rebuild'
+      path: '/api/apk/rebuild'
+      fullPath: '/api/apk/rebuild'
+      preLoaderRoute: typeof ApiApkRebuildRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EditorRoute: EditorRoute,
+  ApiApkDecompileRoute: ApiApkDecompileRoute,
+  ApiApkRebuildRoute: ApiApkRebuildRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

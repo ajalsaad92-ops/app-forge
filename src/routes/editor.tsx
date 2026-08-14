@@ -77,6 +77,8 @@ import {
   CATEGORY_META,
   formatBytes,
   getFileLanguage,
+  getCategoryFromPath,
+  isEditableFile,
 } from "@/lib/apk-processor";
 import {
   Dialog,
@@ -198,15 +200,73 @@ function AppForgeEditor() {
     setIsLoading(true);
     const toastId = toast.loading(`جاري تحليل ${file.name}... Analyzing ${file.name}`);
     try {
-      const result = await apkProcessor.loadAPK(file);
+      // 1. Try server-side decompile first for full SMALI/XML support
+      let result;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await fetch('/api/apk/decompile', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (response.ok) {
+          const serverData = await response.json();
+          // Map server results back to APKFile structure
+          const mappedFiles: APKFile[] = serverData.files.map((f: any) => ({
+            name: f.path.split('/').pop() || f.path,
+            path: f.path,
+            content: f.content || "",
+            type: f.isBinary ? "binary" : "text",
+            category: getCategoryFromPath(f.path),
+            size: f.content ? f.content.length : 0,
+            editable: !f.isBinary && isEditableFile(f.path, getCategoryFromPath(f.path)),
+          }));
+          
+          setApkFiles(mappedFiles);
+          apkProcessor.setAllFiles(mappedFiles);
+          
+          setOpenTabs([]); // Reset tabs on new upload
+          setActiveFilePath("");
+          
+          // Heuristic to find manifest and other info
+          const manifestFile = mappedFiles.find(f => f.path === "AndroidManifest.xml");
+          if (manifestFile && typeof manifestFile.content === "string") {
+            const info = await apkProcessor.parseManifest(manifestFile.content);
+            setApkInfo(info);
+            
+            // Open manifest by default
+            setActiveFilePath("AndroidManifest.xml");
+            setOpenTabs(["AndroidManifest.xml"]);
+            setCenterTab("visual");
+          }
+          
+          toast.success("تم فك التطبيق (Decompiled) بنجاح!", { id: toastId });
+          setIsLoading(false);
+          setLeftTab("categories");
+          setRightTab("info");
+          return;
+        }
+      } catch (e) {
+        console.warn("Server decompile failed, falling back to client-side JSZip", e);
+      }
+
+      // 2. Fallback to client-side JSZip (original behavior)
+      result = await apkProcessor.loadAPK(file);
       setApkFiles(apkProcessor.getAllFiles());
       setApkInfo(result.info);
       setCertificates(result.certificates);
       setCategoryStats(result.stats);
+      
+      // Set default tabs for JSZip fallback too
+      setOpenTabs(["AndroidManifest.xml"]);
+      setActiveFilePath("AndroidManifest.xml");
+      setCenterTab("visual");
+
       setManifestEdit({
-        packageName: result.info.packageName,
-        versionName: result.info.versionName,
-        versionCode: result.info.versionCode,
+        packageName: result.info.packageName || "",
+        versionName: result.info.versionName || "",
+        versionCode: result.info.versionCode || "",
       });
 
       // Open manifest by default
@@ -215,16 +275,6 @@ function AppForgeEditor() {
         setActiveFilePath(manifest);
         setOpenTabs(prev => (prev.includes(manifest) ? prev : [manifest, ...prev].slice(0, 10)));
       }
-
-      // Persist meta (without raw binary for storage limit)
-      try {
-        await set(APK_META_KEY, {
-          info: result.info,
-          certs: result.certificates,
-          stats: result.stats,
-          files: apkProcessor.getAllFiles().map(f => ({ ...f, rawContent: undefined, content: typeof f.content === "string" ? f.content.slice(0, 5000) : undefined })),
-        });
-      } catch {}
 
       toast.success(`تم تحليل APK بنجاح! ${result.files.length} ملف`, { id: toastId });
       setLeftTab("categories");
@@ -342,54 +392,43 @@ function AppForgeEditor() {
       return;
     }
     
-    // Check if local backend is online for native processing
+    setIsLoading(true);
+    const toastId = toast.loading("جاري تجميع التطبيق على الخادم... Rebuilding APK");
+    
     try {
-      const health = await fetch('http://localhost:3000/api/health');
-      if (health.ok) {
-        setIsLoading(true);
-        const toastId = toast.loading("جاري إرسال المشروع للبناء على الخادم المحلي...");
-        try {
-          const zipBlob = await apkProcessor.rebuildAPK();
-          const formData = new FormData();
-          formData.append('project', zipBlob, 'project.zip');
-          
-          const buildRes = await fetch('http://localhost:3000/api/build', {
-            method: 'POST',
-            body: formData
-          });
-          
-          if (buildRes.ok) {
-            const blob = await buildRes.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
-            a.click();
-            toast.success("تم البناء والتوقيع بنجاح!", { id: toastId });
-          } else {
-            throw new Error("فشل البناء على الخادم");
-          }
-        } catch (err: any) {
-          toast.error(`خطأ في البناء: ${err.message}`, { id: toastId });
-        } finally {
-          setIsLoading(false);
-        }
-        return;
-      }
-    } catch (e) {}
+      // Prepare files for server-side build
+      const projectFiles = apkFiles.map(f => ({
+        path: f.path,
+        content: typeof f.content === 'string' ? f.content : null
+      }));
 
-    // Fallback to browser-side export if server is offline
-    const toastId = toast.loading("الخادم المحلي غير متصل. جاري التصدير كملف مضغوط...");
-    try {
-      const blob = await apkProcessor.rebuildAPK({ removeSignature: true });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
-      a.click();
-      toast.success("تم التصدير (غير موقع)", { id: toastId });
+      const formData = new FormData();
+      formData.append('files', JSON.stringify(projectFiles));
+      formData.append('packageName', apkInfo?.packageName || 'app');
+
+      const response = await fetch('/api/apk/rebuild', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("تم تجميع التطبيق بنجاح!", { id: toastId });
+      } else {
+        const errorText = await response.text();
+        throw new Error(errorText || "فشل البناء على الخادم");
+      }
     } catch (err: any) {
-      toast.error("فشل التصدير", { id: toastId });
+      console.error(err);
+      toast.error(`خطأ في البناء: ${err.message}`, { id: toastId });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -445,7 +484,8 @@ function AppForgeEditor() {
     setChatMessages(prev => [...prev, { role: "ai", content: "جاري التفكير... Thinking..." }]);
 
     try {
-      const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg);
+      // Pass all files for better context
+      const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg, apkFiles);
       setPendingCode(actionResult.modifiedCode);
       setOriginalCode(activeFile.content);
       setChatMessages(prev => [...prev.slice(0, -1), { role: "ai", content: `${actionResult.explanation}\n\nراجع التغييرات في عرض Diff.` }]);
@@ -891,9 +931,9 @@ function AppForgeEditor() {
               بناء APK
             </Button>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/50 border border-slate-700/50">
-              <div className={`h-1.5 w-1.5 rounded-full ${apkFiles.length > 0 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-slate-600'}`} />
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
               <span className="text-[9px] font-bold text-slate-300 uppercase tracking-tighter">
-                {apkFiles.length > 0 ? "Tools Online" : "Tools Offline"}
+                Server Ready (Nix)
               </span>
             </div>
             <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSetup(true)} title="Setup">

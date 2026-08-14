@@ -468,6 +468,8 @@ function AppForgeEditor() {
 
   const discardChanges = () => {
     setPendingCode(null);
+    setViewMode("editor");
+    toast.info("تم إلغاء التغييرات");
   };
 
   const handleStabilityAudit = async () => {
@@ -489,9 +491,6 @@ function AppForgeEditor() {
     } finally {
       setIsAuditing(false);
     }
-  };
-    setViewMode("editor");
-    toast.info("تم إلغاء التغييرات");
   };
 
   const groupedByFolder = React.useMemo(() => {

@@ -372,8 +372,8 @@ function getCategoryFromPath(path: string): APKCategory {
 function isEditableFile(path: string, category: APKCategory): boolean {
   const lower = path.toLowerCase();
   if (category === 'security') return false; // Don't allow editing certs directly
-  if (lower.endsWith('.so') || lower.endsWith('.dex') || lower.endsWith('.arsc')) return false;
-  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif')) return false;
+  if (lower.endsWith('.so') || lower.endsWith('.dex') || lower.endsWith('.arsc') || lower.endsWith('.apk')) return false;
+  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif') || lower.endsWith('.ico')) return false;
   return true;
 }
 

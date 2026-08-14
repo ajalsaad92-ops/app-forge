@@ -12,4 +12,11 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      // Allow the preview/proxy hosts used by the hosting environment (Lovable,
+      // sandbox previews, etc.). The browser-facing app uses relative URLs only.
+      allowedHosts: true,
+    },
+  },
 });

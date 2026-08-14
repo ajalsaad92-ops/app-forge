@@ -19,7 +19,11 @@ import {
   Settings,
   Wand2,
   Search,
-  Loader2
+  Loader2,
+  HelpCircle,
+  Zap,
+  ExternalLink,
+  Sparkles
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,8 +34,12 @@ import {
   askAboutAPK,
   buildAPKContext,
   isAppWideQuestion,
+  analyzeProject,
+  testAIConnection,
+  providersByTier,
   type AIProvider,
   type AISettings,
+  type AITestResult,
   PROVIDERS,
 } from "@/lib/ai-service";
 import {
@@ -54,6 +62,7 @@ import {
   bridgeListMods,
   bridgeDetectMod,
   bridgeApplyMod,
+  bridgeDump,
   type BridgeFileEntry,
   type BridgeMod,
   type ModMatch,
@@ -136,19 +145,26 @@ function AppForgeEditor() {
   const [isDragging, setIsDragging] = React.useState(false);
 
   // AI & Chat State
-  const [aiSettings, setAiSettings] = React.useState<AISettings>({
-    provider: "gemini",
-    apiKey: "",
-  });
+  const [aiProvider, setAiProvider] = React.useState<AIProvider>("gemini");
+  const [aiKeys, setAiKeys] = React.useState<Partial<Record<AIProvider, string>>>({});
   const [chatMessages, setChatMessages] = React.useState<{role: "user" | "ai"; content: string}[]>([
     {
       role: "ai",
-      content: "مرحباً! 👋 أنا مساعد APP-FORGE الذكي. يمكنك سؤالي عن أي ملف في الـ APK أو طلب تعديل الكود.\n\nHello! I can help you analyze and modify APK files. Upload an APK to start.",
+      content: "مرحباً! 👋 أنا مساعد APP-FORGE الذكي.\n\nيمكنك:\n• سؤالي عن أي ملف في الـ APK\n• طلب تعديل كود (سأعرض الفرق قبل التطبيق)\n• أو الضغط على «تحليل شامل» لفحص المشروع كاملًا\n\nارفع ملف APK للبدء.",
     },
   ]);
   const [chatInput, setChatInput] = React.useState("");
   const [originalCode, setOriginalCode] = React.useState<string>("");
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
+  const [showHelp, setShowHelp] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+  const [testResult, setTestResult] = React.useState<AITestResult | null>(null);
+
+  // Resolve the currently active AI settings from the per-provider key map.
+  const resolveAISettings = (): AISettings => ({
+    provider: aiProvider,
+    apiKey: aiKeys[aiProvider] || "",
+  });
 
   // True when the current session is decompiled on the bridge (real smali/manifest),
   // so edits and builds are routed through the bridge rather than in-browser JSZip.
@@ -171,7 +187,16 @@ function AppForgeEditor() {
       const savedSettings = localStorage.getItem("APPFORGE_AI_SETTINGS");
       if (savedSettings) {
         try {
-          setAiSettings(JSON.parse(savedSettings));
+          const parsed = JSON.parse(savedSettings);
+          if (parsed && typeof parsed === "object") {
+            setAiProvider((parsed.provider as AIProvider) || "gemini");
+            if (parsed.keys && typeof parsed.keys === "object") {
+              setAiKeys(parsed.keys);
+            } else if (typeof parsed.apiKey === "string" && parsed.apiKey) {
+              // migrate old single-key format
+              setAiKeys({ [parsed.provider as AIProvider]: parsed.apiKey });
+            }
+          }
         } catch (e) {
           console.error("Failed to parse AI settings", e);
         }
@@ -418,6 +443,7 @@ function AppForgeEditor() {
     setIsAnalyzing(true);
 
     try {
+      const settings = resolveAISettings();
       const appWide = isAppWideQuestion(userMsg);
       const apkContext = buildAPKContext({
         info: apkInfo,
@@ -427,10 +453,10 @@ function AppForgeEditor() {
       });
 
       if (appWide) {
-        const answer = await askAboutAPK(aiSettings, userMsg, apkContext);
+        const answer = await askAboutAPK(settings, userMsg, apkContext);
         setChatMessages(prev => [...prev, { role: "ai", content: answer }]);
       } else if (activeFile && typeof activeFile.content === "string") {
-        const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg, apkContext);
+        const actionResult = await getCodeAction(settings, activeFile.content, userMsg, apkContext);
         const changed = actionResult.modifiedCode !== activeFile.content;
         setPendingCode(changed ? actionResult.modifiedCode : null);
         setOriginalCode(activeFile.content);
@@ -440,6 +466,36 @@ function AppForgeEditor() {
         }]);
         if (changed) setViewMode("diff");
       }
+    } catch (err: any) {
+      setChatMessages(prev => [...prev, { role: "ai", content: `خطأ: ${err.message}` }]);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Full-project analysis: feed every decompiled text file to the AI.
+  const runFullAnalysis = async () => {
+    if (!bridgeSession.current) {
+      toast.error("التحليل الشامل يتطلب الجسر المحلي (فكّ التطبيق أولًا).");
+      return;
+    }
+    setIsAnalyzing(true);
+    try {
+      const files = await bridgeDump();
+      if (files.length === 0) {
+        setChatMessages(prev => [...prev, { role: "ai", content: "لم أجد ملفات نصية مفكوكة لتحليلها." }]);
+        return;
+      }
+      setChatMessages(prev => [...prev, {
+        role: "user",
+        content: "🔎 تحليل شامل: افحص المشروع كاملًا واذكر الملفات القابلة للتعديل (إعلانات، شراء، تحديثات، جذر، توقيع) مع مساراتها.",
+      }]);
+      const answer = await analyzeProject(
+        resolveAISettings(),
+        files,
+        "حلّل هذا التطبيق المفكوك بالكامل. اذكر: 1) الملفات القابلة للتعديل مباشرة (إعلانات/شراء/تحديثات/جذر/توقيع) مع مساراتها، 2) أي مخاطر أو سلوكيات مشبوهة، 3) توصيات بالتعديلات الجاهزة.",
+      );
+      setChatMessages(prev => [...prev, { role: "ai", content: answer }]);
     } catch (err: any) {
       setChatMessages(prev => [...prev, { role: "ai", content: `خطأ: ${err.message}` }]);
     } finally {
@@ -608,6 +664,9 @@ function AppForgeEditor() {
             ))}
           </div>
           <div className="flex gap-2 items-center">
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setShowHelp(true)} title="مساعدة">
+              <HelpCircle className="h-4 w-4" />
+            </Button>
             <span
               className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded ${
                 bridgeOnline ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
@@ -686,22 +745,36 @@ function AppForgeEditor() {
           </TabsContent>
 
           <TabsContent value="ai" className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-3 pt-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                {PROVIDERS[aiProvider].icon} {PROVIDERS[aiProvider].label}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px] gap-1"
+                onClick={runFullAnalysis}
+                disabled={isAnalyzing || !bridgeSession.current}
+              >
+                <Sparkles className="h-3 w-3" /> تحليل شامل
+              </Button>
+            </div>
             <ScrollArea className="flex-1 p-3">
               <div className="space-y-3">
                 {chatMessages.map((m, i) => (
                   <div key={i} className={`p-2 rounded text-xs ${m.role === 'user' ? 'bg-primary/20 ml-4' : 'bg-slate-800 mr-4'}`}>
-                    <div className="font-bold opacity-50 mb-1">{m.role === 'user' ? 'You' : 'AI'}</div>
+                    <div className="font-bold opacity-50 mb-1">{m.role === 'user' ? 'أنت' : 'AI'}</div>
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   </div>
                 ))}
-                {isAnalyzing && <div className="text-xs animate-pulse">Thinking...</div>}
+                {isAnalyzing && <div className="text-xs animate-pulse">جارٍ التفكير...</div>}
               </div>
             </ScrollArea>
             <form onSubmit={sendChatMessage} className="p-3 border-t border-slate-800 flex gap-2">
               <Input 
                 value={chatInput} 
                 onChange={(e) => setChatInput(e.target.value)} 
-                placeholder="Ask AI..." 
+                placeholder="اسأل الذكاء الاصطناعي..." 
                 className="h-9 text-xs" 
               />
               <Button type="submit" size="icon" className="h-9 w-9 shrink-0"><Send className="h-4 w-4" /></Button>
@@ -712,34 +785,140 @@ function AppForgeEditor() {
 
       {/* AI Settings */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="bg-slate-900 border-slate-800">
-          <DialogHeader><DialogTitle>AI Settings</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-             <div className="space-y-2">
-               <Label>Provider</Label>
-               <Select value={aiSettings.provider} onValueChange={(v: AIProvider) => setAiSettings({...aiSettings, provider: v})}>
-                 <SelectTrigger className="bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
-                 <SelectContent className="bg-slate-800 border-slate-700">
-                    {Object.values(PROVIDERS).map(p => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-                 </SelectContent>
-               </Select>
-             </div>
-             <div className="space-y-2">
-               <Label>API Key</Label>
-               <Input 
-                 type="password" 
-                 value={aiSettings.apiKey} 
-                 onChange={(e) => setAiSettings({...aiSettings, apiKey: e.target.value})}
-                 className="bg-slate-800 border-slate-700"
-               />
-             </div>
-          </div>
+        <DialogContent className="max-w-xl bg-slate-900 border-slate-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-primary" /> إعدادات الذكاء الاصطناعي
+            </DialogTitle>
+            <p className="text-xs text-slate-400">
+              اختر مزوّدًا وأدخل مفتاحه. المفاتيح تُحفظ محليًا في متصفحك فقط ولا تُرسل لأي خادم آخر.
+            </p>
+          </DialogHeader>
+
+          <ScrollArea className="max-h-[55vh] pr-2 mt-2">
+            <div className="space-y-4">
+              {/* Current provider */}
+              <div className="space-y-2">
+                <Label>المزوّد الحالي</Label>
+                <Select value={aiProvider} onValueChange={(v: AIProvider) => { setAiProvider(v); setTestResult(null); }}>
+                  <SelectTrigger className="bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    {Object.values(PROVIDERS).map(p => <SelectItem key={p.id} value={p.id}>{p.icon} {p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* API key for current provider (demo needs none) */}
+              {aiProvider !== "demo" && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>API Key — {PROVIDERS[aiProvider].label}</Label>
+                    <a href={PROVIDERS[aiProvider].link} target="_blank" rel="noopener noreferrer" className="text-[11px] text-primary hover:underline inline-flex items-center gap-1">
+                      احصل على مفتاح <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <Input
+                    type="password"
+                    value={aiKeys[aiProvider] || ""}
+                    onChange={(e) => setAiKeys((prev) => ({ ...prev, [aiProvider]: e.target.value }))}
+                    placeholder="sk-..."
+                    className="bg-slate-800 border-slate-700"
+                  />
+                  <div className="text-[11px] text-slate-500">{PROVIDERS[aiProvider].freeQuota}</div>
+                </div>
+              )}
+
+              {/* Test connection */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={async () => {
+                    setTesting(true);
+                    setTestResult(null);
+                    const result = await testAIConnection(resolveAISettings());
+                    setTestResult(result);
+                    setTesting(false);
+                  }}
+                  disabled={testing}
+                >
+                  {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                  اختبار الاتصال
+                </Button>
+                {testResult && (
+                  <span className={`text-[11px] ${testResult.ok ? "text-emerald-400" : "text-rose-400"}`}>
+                    {testResult.ok ? `✅ متصل (${testResult.latencyMs}ms)` : `❌ ${testResult.message.slice(0, 80)}`}
+                  </span>
+                )}
+              </div>
+
+              {/* Free providers */}
+              <div>
+                <div className="text-[11px] font-bold text-emerald-400 mb-2">🟢 مزوّدات مجانية</div>
+                <div className="space-y-1.5">
+                  {providersByTier().free.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setAiProvider(p.id); setTestResult(null); }}
+                      className={`w-full text-left p-2.5 rounded-lg border flex items-center justify-between gap-2 transition-colors ${aiProvider === p.id ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base">{p.icon}</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold truncate">{p.label}</div>
+                          <div className="text-[10px] text-slate-500 truncate">{p.freeQuota}</div>
+                        </div>
+                      </div>
+                      {aiKeys[p.id] && <span className="text-emerald-400 text-[10px] shrink-0">مفتاح ✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Paid providers */}
+              <div>
+                <div className="text-[11px] font-bold text-amber-400 mb-2">🟡 مزوّدات مدفوعة / منخفضة التكلفة</div>
+                <div className="space-y-1.5">
+                  {providersByTier().paid.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setAiProvider(p.id); setTestResult(null); }}
+                      className={`w-full text-left p-2.5 rounded-lg border flex items-center justify-between gap-2 transition-colors ${aiProvider === p.id ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base">{p.icon}</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold truncate">{p.label}</div>
+                          <div className="text-[10px] text-slate-500 truncate">{p.freeQuota}</div>
+                        </div>
+                      </div>
+                      {aiKeys[p.id] && <span className="text-emerald-400 text-[10px] shrink-0">مفتاح ✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Demo */}
+              <button
+                onClick={() => { setAiProvider("demo"); setTestResult(null); }}
+                className={`w-full text-left p-2.5 rounded-lg border flex items-center gap-2 ${aiProvider === "demo" ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
+              >
+                <span className="text-base">🎮</span>
+                <div>
+                  <div className="text-xs font-semibold">وضع Demo (بدون مفتاح)</div>
+                  <div className="text-[10px] text-slate-500">تحليل محلي سريع دون إرسال بياناتك لأي جهة</div>
+                </div>
+              </button>
+            </div>
+          </ScrollArea>
+
           <DialogFooter>
             <Button onClick={() => {
-              localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify(aiSettings));
+              localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify({ provider: aiProvider, keys: aiKeys }));
               setShowSettings(false);
-              toast.success("Saved");
-            }}>Save</Button>
+              toast.success("تم حفظ الإعدادات");
+            }}>حفظ</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -831,6 +1010,42 @@ function AppForgeEditor() {
             <Button variant="outline" onClick={() => setShowMods(false)} className="border-slate-700 hover:bg-slate-800">
               إغلاق
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Help / Onboarding */}
+      <Dialog open={showHelp} onOpenChange={setShowHelp}>
+        <DialogContent className="max-w-xl bg-slate-900 border-slate-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <HelpCircle className="h-5 w-5 text-primary" /> كيف تستخدم APP-FORGE؟
+            </DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-2 mt-2">
+            <div className="space-y-3 text-xs leading-relaxed">
+              {[
+                { icon: "🔌", title: "1) جهّز الجسر المحلي", body: "زر «Setup» يتحقق من الأدوات (Java/apktool/apksigner/zipalign) ويثبّتها بنقرة. عندما يتحول المؤشر العلوي إلى «Bridge» أخضر، فأنت جاهز للتعديل الحقيقي." },
+                { icon: "📦", title: "2) ارفع ملف APK", body: "اسحب الملف أو اضغط لرفعه. مع الجسر المتصل يُفكّ التطبيق إلى Smali ومانيفست وموارد حقيقية (وليس مجرد ZIP)." },
+                { icon: "📂", title: "3) تصفّح وعدّل", body: "العمود الأيسر يعرض الملفات مصنّفة. اضغط أي ملف نصي لتحريره في المحرر الأوسط، وستُحفظ تعديلاتك تلقائيًا." },
+                { icon: "🪄", title: "4) استخدم قوالب التعديل", body: "زر «Mods» يفتح قوالب جاهزة (قطع التحديثات، تفعيل الشراء، إزالة الإعلانات، إزالة تحقق الجذر/التوقيع). لكل قالب «اكتشاف» و«تطبيق»." },
+                { icon: "🤖", title: "5) استعن بالذكاء الاصطناعي", body: "العمود الأيمن فيه محادثة AI. اضغط «تحليل شامل» لفحص كل الملفات، أو اطلب تعديل كود مباشرة وسيعرض الفرق قبل التطبيق. من «AI Settings» اختر مزوّدًا مجانيًا أو مدفوعًا." },
+                { icon: "🔨", title: "6) ابنِ ووقّع", body: "زر «Build» يعيد البناء والمحاذاة والتوقيع وينزّل APK جاهزًا للتثبيت. بدون الجسر، سيكون الناتج غير موقّع ولن يثبَّت." },
+              ].map((s, i) => (
+                <div key={i} className="p-3 rounded-lg border border-slate-700 bg-slate-800/40">
+                  <div className="font-bold mb-1 flex items-center gap-2"><span>{s.icon}</span>{s.title}</div>
+                  <div className="text-slate-400">{s.body}</div>
+                </div>
+              ))}
+
+              <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-amber-300 text-[11px]">
+                ⚠️ <b>تنبيه:</b> تعديل تطبيقات الآخرين (إزالة الشراء/الإعلانات) قد يخالف شروط الاستخدام وحقوق الملكية.
+                استخدم الأداة للأغراض التعليمية وللتطبيقات التي تملك حق تعديلها، واحتفظ دائمًا بنسخة احتياطية واختبر بعد كل تعديل.
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button onClick={() => setShowHelp(false)}>فهمت</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

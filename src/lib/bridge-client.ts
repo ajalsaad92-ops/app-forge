@@ -124,3 +124,19 @@ export async function bridgeApplyMod(modId: string): Promise<{ changed: string[]
   const data = await postJSON("/api/mods/apply", { modId });
   return { changed: data.changed };
 }
+
+// ---------------------------------------------------------------------------
+// Full-project dump (feeds the AI's comprehensive analysis)
+// ---------------------------------------------------------------------------
+
+export interface ProjectFileDump {
+  path: string;
+  content: string;
+}
+
+export async function bridgeDump(): Promise<ProjectFileDump[]> {
+  const res = await fetch(`${getBridgeBase()}/api/dump`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Dump failed (${res.status})`);
+  return (data.files || []) as ProjectFileDump[];
+}

@@ -337,6 +337,28 @@ app.get("/api/files", async (req, res) => {
   res.json({ files });
 });
 
+app.get("/api/dump", async (req, res) => {
+  if (!state.decompiledDir) return res.json({ files: [] });
+  const entries = await listDirRecursive(state.decompiledDir);
+  const textFiles = entries.filter((e) => e.type === "file" && textLike(e.path));
+  const files = [];
+  let total = 0;
+  for (const e of textFiles) {
+    if (total > 500_000) break;
+    const full = path.join(state.decompiledDir, e.path);
+    let content = "";
+    try {
+      content = await fsp.readFile(full, "utf8");
+    } catch {
+      continue;
+    }
+    if (content.length > 30_000) content = content.slice(0, 30_000);
+    files.push({ path: e.path, content });
+    total += content.length;
+  }
+  res.json({ files });
+});
+
 app.get("/api/file", async (req, res) => {
   const rel = req.query.path;
   if (!rel || !state.decompiledDir) return res.status(400).json({ error: "Missing path or no project loaded." });

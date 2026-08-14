@@ -6,99 +6,90 @@ import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import {
   FileCode,
+  FolderPlus,
+  FilePlus,
+  Trash2,
+  Play,
   MessageSquare,
+  ChevronRight,
+  ChevronDown,
+  Code2,
   Send,
+  Loader2,
+  Settings,
+  Split,
+  Eye,
+  Key,
   Check,
   X,
+  Edit2,
   Upload,
-  Wrench,
-  Package,
-  ShieldCheck,
-  ShieldAlert,
-  Info,
-  Settings,
-  Wand2,
+  Download,
   Search,
-  Loader2,
-  HelpCircle,
-  Zap,
-  ExternalLink,
-  Sparkles,
-  Laptop,
-  Cloud,
-  PlugZap,
-  Plus,
+  Package,
+  Shield,
+  Smartphone,
+  Box,
+  Layers,
+  FileText,
+  Lock,
+  Cpu,
+  Database,
+  Flame,
+  Folder,
+  Image as ImageIcon,
+  FileJson,
+  Wrench,
   RefreshCw,
-  Rocket,
+  Save,
+  MoreHorizontal,
+  ShieldAlert,
+  CheckCircle,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { analyzeCode } from "@/lib/analysis.functions";
 import {
   getCodeAction,
-  askAboutAPK,
-  buildAPKContext,
-  isAppWideQuestion,
-  analyzeProject,
-  testAIConnection,
-  providersByTier,
+  callAI,
+  auditCodebase,
   type AIProvider,
   type AISettings,
-  type AITestResult,
-  PROVIDERS,
+  PROVIDER_LINKS,
 } from "@/lib/ai-service";
 import {
   apkProcessor,
+  exportToZip,
   type APKFile,
   type APKInfo,
   type CertificateInfo,
   type CategoryStats,
   type APKCategory,
+  type APKPermission,
   CATEGORY_META,
+  formatBytes,
   getFileLanguage,
 } from "@/lib/apk-processor";
 import {
-  bridgeHealth,
-  bridgeUpload,
-  bridgeReadFile,
-  bridgeWriteFile,
-  bridgeBuild,
-  bridgeDownloadUrl,
-  bridgeListMods,
-  bridgeDetectMod,
-  bridgeApplyMod,
-  bridgeDump,
-  getStoredMode,
-  setStoredMode,
-  getBridgeBase,
-  isOnboarded,
-  type EditMode,
-  type BridgeFileEntry,
-  type BridgeMod,
-  type ModMatch,
-} from "@/lib/bridge-client";
-import { Onboarding } from "@/components/Onboarding";
-import { ConnectionSettings } from "@/components/ConnectionSettings";
-import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ShieldCheck } from "lucide-react";
 import { SetupGuide } from "@/components/SetupGuide";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/editor")({
   component: () => (
@@ -108,1405 +99,1183 @@ export const Route = createFileRoute("/editor")({
   ),
 });
 
+interface FileSystemItem {
+  id: string;
+  name: string;
+  type: "file" | "folder";
+  content?: string | Uint8Array | undefined;
+  parentId: string | null;
+  path?: string;
+}
+
+const STORAGE_KEY = "APPFORGE_FILES_V2";
 const APK_META_KEY = "APPFORGE_APK_META";
 
-// Map a decompiled path to the same categories the UI already understands.
-function bridgeCategory(p: string): APKCategory {
-  if (p === "AndroidManifest.xml") return "manifest";
-  if (p.startsWith("smali") || p.endsWith(".dex") || p.startsWith("kotlin/")) return "code";
-  if (p.startsWith("res/") || p.startsWith("assets/")) return "resources";
-  if (p.startsWith("lib/")) return "native";
-  if (p.endsWith(".json") || p.endsWith(".properties") || p.endsWith(".yml") || p.endsWith(".xml"))
-    return "config";
-  if (p.startsWith("META-INF/") || p.endsWith(".RSA") || p.endsWith(".DSA") || p.endsWith(".SF"))
-    return "security";
-  return "other";
-}
-
-function bridgeToAPKFile(entry: BridgeFileEntry): APKFile {
-  return {
-    name: entry.path.split("/").pop() || entry.path,
-    path: entry.path,
-    content: "",
-    type: entry.editable ? "text" : "binary",
-    category: bridgeCategory(entry.path),
-    size: entry.size || 0,
-    editable: !!entry.editable,
-  };
-}
-
 function AppForgeEditor() {
-  const [searchQuery, setSearchQuery] = React.useState("");
-
-  // APK Processor State
   const [apkFiles, setApkFiles] = React.useState<APKFile[]>([]);
-  const [activeFilePath, setActiveFilePath] = React.useState<string>("");
   const [apkInfo, setApkInfo] = React.useState<APKInfo | null>(null);
   const [certificates, setCertificates] = React.useState<CertificateInfo[]>([]);
   const [categoryStats, setCategoryStats] = React.useState<CategoryStats[]>([]);
   const [activeCategory, setActiveCategory] = React.useState<APKCategory | "all">("all");
+  const [activeFilePath, setActiveFilePath] = React.useState<string>("");
   const [openTabs, setOpenTabs] = React.useState<string[]>([]);
-
-  // UI State
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set(["root"]));
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
-  const [bridgeOnline, setBridgeOnline] = React.useState(false);
-  const [editMode, setEditMode] = React.useState<EditMode>("local");
-  const [showConn, setShowConn] = React.useState(false);
-  const [showOnboarding, setShowOnboarding] = React.useState(false);
-  const [built, setBuilt] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(false);
   const [leftTab, setLeftTab] = React.useState<"categories" | "files" | "certs">("categories");
   const [centerTab, setCenterTab] = React.useState<"code" | "visual" | "preview">("code");
   const [rightTab, setRightTab] = React.useState<"info" | "perms" | "ai">("info");
-  const [viewMode, setViewMode] = React.useState<"editor" | "diff">("editor");
-  const [showSettings, setShowSettings] = React.useState(false);
-  const [showSetup, setShowSetup] = React.useState(false);
-  const [isDragging, setIsDragging] = React.useState(false);
 
-  // AI & Chat State
-  const [aiProvider, setAiProvider] = React.useState<AIProvider>("gemini");
-  const [aiKeys, setAiKeys] = React.useState<Partial<Record<AIProvider, string>>>({});
-  const [chatMessages, setChatMessages] = React.useState<
-    { role: "user" | "ai"; content: string }[]
-  >([
-    {
-      role: "ai",
-      content:
-        "مرحباً! 👋 أنا مساعد APP-FORGE الذكي.\n\nيمكنك:\n• سؤالي عن أي ملف في الـ APK\n• طلب تعديل كود (سأعرض الفرق قبل التطبيق)\n• أو الضغط على «تحليل شامل» لفحص المشروع كاملًا\n\nارفع ملف APK للبدء.",
-    },
+  // Legacy file system for generic project support
+  const [files, setFiles] = React.useState<FileSystemItem[]>([
+    { id: "1", name: "src", type: "folder", parentId: null },
+    { id: "2", name: "App.tsx", type: "file", content: "export default function App() {\n  return <h1>Hello App-Forge!</h1>;\n}", parentId: "1" },
+    { id: "3", name: "utils.ts", type: "file", content: "export const add = (a: number, b: number) => a + b;", parentId: "1" },
+  ]);
+
+  const [chatMessages, setChatMessages] = React.useState<{ role: "user" | "ai"; content: string }[]>([
+    { role: "ai", content: "مرحباً! 👋 أنا مساعد APP-FORGE الذكي. يمكنك سؤالي عن أي ملف في الـ APK أو طلب تعديل الكود.\n\nHello! I can help you analyze and modify APK files. Upload an APK to start." },
   ]);
   const [chatInput, setChatInput] = React.useState("");
-  const [originalCode, setOriginalCode] = React.useState<string>("");
+  const [viewMode, setViewMode] = React.useState<"editor" | "diff">("editor");
+  const [originalCode, setOriginalCode] = React.useState("");
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
-  const [showHelp, setShowHelp] = React.useState(false);
-  const [testing, setTesting] = React.useState(false);
-  const [testResult, setTestResult] = React.useState<AITestResult | null>(null);
+  const [aiSettings, setAiSettings] = React.useState<AISettings>({ provider: "gemini", apiKey: "" });
+  const [showSettings, setShowSettings] = React.useState(false);
+  const [showSetup, setShowSetup] = React.useState(false);
+  const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [manifestEdit, setManifestEdit] = React.useState({ packageName: "", versionName: "", versionCode: "" });
 
-  // Resolve the currently active AI settings from the per-provider key map.
-  const resolveAISettings = (): AISettings => ({
-    provider: aiProvider,
-    apiKey: aiKeys[aiProvider] || "",
-  });
-
-  // True when the current session is decompiled on the bridge (real smali/manifest),
-  // so edits and builds are routed through the bridge rather than in-browser JSZip.
-  const bridgeSession = React.useRef(false);
-
-  // Mods (Toolbox) state
-  interface ModEntry {
-    detected?: ModMatch[] | null;
-    changed?: string[] | null;
-    busy?: boolean;
-    error?: string | null;
-  }
-  const [showMods, setShowMods] = React.useState(false);
-  const [mods, setMods] = React.useState<BridgeMod[]>([]);
-  const [modState, setModState] = React.useState<Record<string, ModEntry>>({});
-
-  // Load client-only state after mount (avoids SSR hydration mismatches).
-  React.useEffect(() => {
-    const m = getStoredMode();
-    setEditMode(m);
-    if (!isOnboarded()) setShowOnboarding(true);
-  }, []);
-
-  // Initialization
+  // Load persisted + check pending file from landing
   React.useEffect(() => {
     const init = async () => {
       const savedSettings = localStorage.getItem("APPFORGE_AI_SETTINGS");
       if (savedSettings) {
         try {
-          const parsed = JSON.parse(savedSettings);
-          if (parsed && typeof parsed === "object") {
-            setAiProvider((parsed.provider as AIProvider) || "gemini");
-            if (parsed.keys && typeof parsed.keys === "object") {
-              setAiKeys(parsed.keys);
-            } else if (typeof parsed.apiKey === "string" && parsed.apiKey) {
-              // migrate old single-key format
-              setAiKeys({ [parsed.provider as AIProvider]: parsed.apiKey });
-            }
-          }
-        } catch (e) {
-          console.error("Failed to parse AI settings", e);
-        }
+          setAiSettings(JSON.parse(savedSettings));
+        } catch {}
       }
-
       try {
-        const storedMeta = await get<{
-          info: APKInfo;
-          certs: CertificateInfo[];
-          stats: CategoryStats[];
-          files: APKFile[];
-        }>(APK_META_KEY);
-
+        const storedMeta = await get<{ info: APKInfo; certs: CertificateInfo[]; stats: CategoryStats[]; files: APKFile[] }>(APK_META_KEY);
         if (storedMeta) {
           setApkInfo(storedMeta.info);
           setCertificates(storedMeta.certs);
           setCategoryStats(storedMeta.stats);
           if (storedMeta.files && storedMeta.files.length > 0) {
-            setApkFiles(
-              storedMeta.files.map((f) => ({
-                ...f,
-                content: f.content || `[Persisted] ${f.path}`,
-              })),
-            );
+            setApkFiles(storedMeta.files.map(f => ({ ...f, content: f.content || `[Persisted] ${f.path}` } as APKFile)));
           }
         }
-      } catch (err) {
-        console.error("Failed to load from IndexedDB", err);
-      }
+      } catch {}
+      setIsFileSystemLoaded(true);
     };
     init();
   }, []);
 
-  // Detect the active bridge (local or cloud) decompile/rebuild/sign engine.
-  React.useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      const online = await bridgeHealth(editMode);
-      if (!cancelled) setBridgeOnline(online);
-    };
-    check();
-    const interval = setInterval(check, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [editMode]);
-
-  const switchMode = (m: EditMode) => {
-    setEditMode(m);
-    setStoredMode(m);
-    // A mode change means a different bridge — drop the in-memory project.
-    setApkFiles([]);
-    setApkInfo(null);
-    setActiveFilePath("");
-    setOpenTabs([]);
-    setCertificates([]);
-    bridgeSession.current = false;
-  };
-
-  // Derived State
-  const activeFile = React.useMemo(() => {
-    if (activeFilePath) return apkFiles.find((f) => f.path === activeFilePath);
-    return null;
-  }, [apkFiles, activeFilePath]);
+  const activeFile = React.useMemo(() => apkFiles.find(f => f.path === activeFilePath), [apkFiles, activeFilePath]);
 
   const filteredFiles = React.useMemo(() => {
     let list = apkFiles;
     if (activeCategory !== "all") {
-      list = list.filter((f) => f.category === activeCategory);
+      list = list.filter(f => f.category === activeCategory);
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (f) => f.path.toLowerCase().includes(q) || f.name.toLowerCase().includes(q),
-      );
+      list = list.filter(f => f.path.toLowerCase().includes(q) || f.name.toLowerCase().includes(q));
     }
     return list;
   }, [apkFiles, activeCategory, searchQuery]);
 
-  // Handlers
   const handleAPKUpload = async (file: File) => {
-    if (
-      !file.name.endsWith(".apk") &&
-      !file.name.endsWith(".zip") &&
-      !file.name.endsWith(".xapk")
-    ) {
+    if (!file.name.endsWith(".apk") && !file.name.endsWith(".zip") && !file.name.endsWith(".xapk")) {
       toast.error("الرجاء رفع ملف APK صالح");
       return;
     }
     setIsLoading(true);
-    const toastId = toast.loading(`جاري تحليل ${file.name}...`);
+    const toastId = toast.loading(`جاري تحليل ${file.name}... Analyzing ${file.name}`);
     try {
-      // Prefer the local bridge: it gives real smali, a parsed AndroidManifest,
-      // and a signed, installable rebuild.
-      if (bridgeOnline) {
-        const result = await bridgeUpload(file);
-        const fileEntries = result.files.filter((f) => f.type === "file");
-        setApkFiles(fileEntries.map(bridgeToAPKFile));
-        setCertificates([]);
-        const categories: APKCategory[] = [
-          "manifest",
-          "code",
-          "resources",
-          "native",
-          "config",
-          "security",
-          "other",
-        ];
-        setCategoryStats(
-          categories
-            .map((cat) => {
-              const catFiles = fileEntries.filter((f) => bridgeCategory(f.path) === cat);
-              return {
-                category: cat,
-                count: catFiles.length,
-                totalSize: catFiles.reduce((a, f) => a + (f.size || 0), 0),
-              };
-            })
-            .filter((s) => s.count > 0),
-        );
-
-        const m = result.manifest;
-        setApkInfo({
-          packageName: m?.packageName || file.name.replace(".apk", ""),
-          versionName: m?.versionName || "?",
-          versionCode: m?.versionCode || "?",
-          minSdk: m?.minSdk || "?",
-          targetSdk: m?.targetSdk || "?",
-          appName: m?.appName || file.name.replace(".apk", ""),
-          debuggable: m?.debuggable || false,
-          dexCount: fileEntries.filter((f) => f.path.endsWith(".dex")).length,
-          hasNativeLibs: fileEntries.some((f) => f.path.startsWith("lib/")),
-          architectures: [],
-          activities: m?.activities || [],
-          services: m?.services || [],
-          receivers: m?.receivers || [],
-          providers: m?.providers || [],
-          permissions: m?.permissions || [],
-        });
-
-        bridgeSession.current = true;
-        const manifestPath = "AndroidManifest.xml";
-        setActiveFilePath(manifestPath);
-        setOpenTabs([manifestPath]);
-        toast.success("تم فك التطبيق عبر الجسر المحلي (Smali حقيقي)", { id: toastId });
-        setLeftTab("categories");
-        setIsLoading(false);
-        return;
-      }
-
-      // Fallback: in-browser JSZip (fast, but no real decompile/sign).
       const result = await apkProcessor.loadAPK(file);
-      bridgeSession.current = false;
       setApkFiles(apkProcessor.getAllFiles());
       setApkInfo(result.info);
       setCertificates(result.certificates);
       setCategoryStats(result.stats);
-
-      const manifest =
-        result.files.find((p) => p === "AndroidManifest.xml") || result.files[0] || "";
-      if (manifest) {
-        setActiveFilePath(manifest);
-        setOpenTabs([manifest]);
-      }
-
-      await set(APK_META_KEY, {
-        info: result.info,
-        certs: result.certificates,
-        stats: result.stats,
-        files: apkProcessor.getAllFiles().map((f) => ({
-          ...f,
-          rawContent: undefined,
-          content: typeof f.content === "string" ? f.content.slice(0, 5000) : undefined,
-        })),
+      setManifestEdit({
+        packageName: result.info.packageName,
+        versionName: result.info.versionName,
+        versionCode: result.info.versionCode,
       });
 
-      toast.success("تم التحليل بنجاح (داخل المتصفح)", { id: toastId });
+      // Open manifest by default
+      const manifest = result.files.find(p => p === "AndroidManifest.xml") || result.files[0] || "";
+      if (manifest) {
+        setActiveFilePath(manifest);
+        setOpenTabs(prev => (prev.includes(manifest) ? prev : [manifest, ...prev].slice(0, 10)));
+      }
+
+      // Persist meta (without raw binary for storage limit)
+      try {
+        await set(APK_META_KEY, {
+          info: result.info,
+          certs: result.certificates,
+          stats: result.stats,
+          files: apkProcessor.getAllFiles().map(f => ({ ...f, rawContent: undefined, content: typeof f.content === "string" ? f.content.slice(0, 5000) : undefined })),
+        });
+      } catch {}
+
+      toast.success(`تم تحليل APK بنجاح! ${result.files.length} ملف`, { id: toastId });
       setLeftTab("categories");
+      setRightTab("info");
     } catch (err: any) {
+      console.error(err);
       toast.error(`فشل التحليل: ${err.message}`, { id: toastId });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await handleAPKUpload(file);
+    e.target.value = "";
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleAPKUpload(file);
+    if (file) await handleAPKUpload(file);
   };
 
-  const openFile = async (path: string) => {
+  // Auto-load file dropped on landing page
+  React.useEffect(() => {
+    const pending = (window as any).__APP_FORGE_PENDING_FILE__ as File | undefined;
+    if (pending && isFileSystemLoaded) {
+      (window as any).__APP_FORGE_PENDING_FILE__ = undefined;
+      handleAPKUpload(pending);
+    }
+  }, [isFileSystemLoaded]);
+
+  const openFile = (path: string) => {
     setActiveFilePath(path);
     if (!openTabs.includes(path)) {
-      setOpenTabs((prev) => [...prev, path].slice(-10));
+      setOpenTabs(prev => [...prev, path].slice(-10));
     }
-    if (path === "AndroidManifest.xml") setCenterTab("visual");
-    else if (path.match(/\.(png|jpg|jpeg|webp|gif)$/i)) setCenterTab("preview");
-    else setCenterTab("code");
-
-    // Lazy-load text content from the bridge on first open.
-    if (bridgeSession.current) {
-      const file = apkFiles.find((f) => f.path === path);
-      if (file && file.editable && typeof file.content === "string" && file.content === "") {
-        try {
-          const content = await bridgeReadFile(path);
-          setApkFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)));
-        } catch {
-          toast.error(`تعذّر قراءة الملف: ${path}`);
-        }
-      }
+    // Auto switch center tab based on file
+    if (path === "AndroidManifest.xml") {
+      setCenterTab("visual");
+    } else if (path.match(/\.(png|jpg|jpeg|webp|gif)$/i)) {
+      setCenterTab("preview");
+    } else {
+      setCenterTab("code");
     }
   };
 
   const closeTab = (path: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    const newTabs = openTabs.filter((p) => p !== path);
-    setOpenTabs(newTabs);
+    setOpenTabs(prev => prev.filter(p => p !== path));
     if (activeFilePath === path) {
-      setActiveFilePath(newTabs[newTabs.length - 1] || "");
+      const remaining = openTabs.filter(p => p !== path);
+      setActiveFilePath(remaining[remaining.length - 1] || "");
     }
   };
 
   const handleEditorChange = (value: string | undefined) => {
-    if (!activeFilePath) return;
-    const content = value || "";
-    if (bridgeSession.current) {
-      setApkFiles((prev) => prev.map((f) => (f.path === activeFilePath ? { ...f, content } : f)));
-      // Persist to the bridge (debounced) so the rebuild picks up the edit.
-      clearTimeout((handleEditorChange as any)._t);
-      (handleEditorChange as any)._t = setTimeout(() => {
-        bridgeWriteFile(activeFilePath, content).catch(() =>
-          toast.error("فشل حفظ الملف على الجسر المحلي"),
-        );
-      }, 600);
+    if (!activeFilePath || !activeFile) return;
+    const updatedContent = value || "";
+    // Update processor
+    apkProcessor.updateFileContent(activeFilePath, updatedContent);
+    // Update state
+    setApkFiles(prev => prev.map(f => (f.path === activeFilePath ? { ...f, content: updatedContent } : f)));
+  };
+
+  const handleSaveManifest = () => {
+    if (!apkInfo) return;
+    apkProcessor.updateManifestInfo(manifestEdit);
+    setApkInfo({ ...apkInfo, ...manifestEdit });
+    toast.success("تم حفظ معلومات البيان Manifest");
+    setApkFiles(apkProcessor.getAllFiles());
+  };
+
+  const handleAddPermission = (permName: string) => {
+    if (!apkInfo || !permName.trim()) return;
+    if (apkInfo.permissions.some(p => p.name === permName)) {
+      toast.error("الصلاحية موجودة مسبقاً");
       return;
     }
-    apkProcessor.updateFileContent(activeFilePath, content);
-    setApkFiles((prev) => prev.map((f) => (f.path === activeFilePath ? { ...f, content } : f)));
+    const newPerm: APKPermission = { name: permName, isDangerous: permName.includes("LOCATION") || permName.includes("CAMERA") || permName.includes("CONTACTS") };
+    const updated = { ...apkInfo, permissions: [...apkInfo.permissions, newPerm] };
+    setApkInfo(updated);
+    // Try to update manifest XML if editable
+    const manifest = apkFiles.find(f => f.path === "AndroidManifest.xml");
+    if (manifest && typeof manifest.content === "string" && manifest.content.includes("<manifest")) {
+      let content = manifest.content as string;
+      const permTag = `    <uses-permission android:name="${permName}" />\n`;
+      if (content.includes("</manifest>")) {
+        content = content.replace("</manifest>", `${permTag}</manifest>`);
+        apkProcessor.updateFileContent("AndroidManifest.xml", content);
+        setApkFiles(apkProcessor.getAllFiles());
+      }
+    }
+    toast.success(`تمت إضافة الصلاحية: ${permName}`);
+  };
+
+  const handleRemovePermission = (permName: string) => {
+    if (!apkInfo) return;
+    const updated = { ...apkInfo, permissions: apkInfo.permissions.filter(p => p.name !== permName) };
+    setApkInfo(updated);
+    const manifest = apkFiles.find(f => f.path === "AndroidManifest.xml");
+    if (manifest && typeof manifest.content === "string") {
+      const content = (manifest.content as string).replace(new RegExp(`.*${permName}.*\\n?`, "g"), "");
+      apkProcessor.updateFileContent("AndroidManifest.xml", content);
+      setApkFiles(apkProcessor.getAllFiles());
+    }
+    toast.success("تمت إزالة الصلاحية");
   };
 
   const handleRebuild = async () => {
-    if (apkFiles.length === 0) return;
+    if (apkFiles.length === 0) {
+      toast.error("لا يوجد APK للبناء");
+      return;
+    }
     const toastId = toast.loading("جاري إعادة بناء APK...");
     try {
-      if (bridgeSession.current) {
-        // Rebuild + zipalign + sign on the bridge => installable APK.
-        const { fileName } = await bridgeBuild();
-        const a = document.createElement("a");
-        a.href = bridgeDownloadUrl();
-        a.download = fileName;
-        a.click();
-        setBuilt(true);
-        toast.success("تم البناء والتوقيع والتنزيل APK قابل للتثبيت", { id: toastId });
-        return;
-      }
-      // In-browser fallback (unsigned — will NOT install).
       const blob = await apkProcessor.rebuildAPK({ removeSignature: true });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
+      a.download = `${apkInfo?.packageName || "app"}-modded-${Date.now()}.apk`;
       a.click();
       URL.revokeObjectURL(url);
-      setBuilt(true);
-      toast.success("تم التنزيل (غير موقّع — فعّل الجسر المحلي لتوقيعه)", { id: toastId });
+      toast.success("تم إعادة البناء وتنزيل APK المُعدّل (غير مُوقّع - يحتاج توقيع)", { id: toastId });
     } catch (err: any) {
       toast.error(`فشل البناء: ${err.message}`, { id: toastId });
     }
   };
 
-  const sendChatMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const userMsg = chatInput.trim();
-    if (!userMsg) return;
-
-    setChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-    setChatInput("");
-    setIsAnalyzing(true);
-
+  const handleExport = async () => {
+    const toastId = toast.loading("جاري تصدير المشروع...");
     try {
-      const settings = resolveAISettings();
-      const appWide = isAppWideQuestion(userMsg);
-      const apkContext = buildAPKContext({
-        info: apkInfo,
-        certificates,
-        categories: categoryStats,
-        files: apkFiles,
-      });
+      const blob = await apkProcessor.rebuildAPK();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${apkInfo?.packageName || "export"}-${Date.now()}.apk`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("تم التصدير", { id: toastId });
+    } catch (err) {
+      toast.error("فشل التصدير", { id: toastId });
+    }
+  };
 
-      if (appWide) {
-        const answer = await askAboutAPK(settings, userMsg, apkContext);
-        setChatMessages((prev) => [...prev, { role: "ai", content: answer }]);
-      } else if (activeFile && typeof activeFile.content === "string") {
-        const actionResult = await getCodeAction(settings, activeFile.content, userMsg, apkContext);
-        const changed = actionResult.modifiedCode !== activeFile.content;
-        setPendingCode(changed ? actionResult.modifiedCode : null);
-        setOriginalCode(activeFile.content);
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            role: "ai",
-            content: changed
-              ? `${actionResult.explanation}\n\nراجع عرض Diff.`
-              : actionResult.explanation,
-          },
-        ]);
-        if (changed) setViewMode("diff");
-      }
-    } catch (err: any) {
-      setChatMessages((prev) => [...prev, { role: "ai", content: `خطأ: ${err.message}` }]);
+  const runAnalysis = async () => {
+    if (!activeFile || typeof activeFile.content !== "string") return;
+    setIsAnalyzing(true);
+    toast.info("جاري التحليل...");
+    try {
+      const result = await analyzeCode({ data: { code: activeFile.content, fileName: activeFile.name } });
+      setChatMessages(prev => [...prev, { role: "ai", content: `**تحليل ${activeFile.name}:**\n${result.summary}\n\n**اقتراحات:**\n${result.suggestions.map(s => `• ${s}`).join("\n")}` }]);
+      toast.success("اكتمل التحليل");
+    } catch {
+      toast.error("فشل التحليل");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // Full-project analysis: feed every decompiled text file to the AI.
-  const runFullAnalysis = async () => {
-    if (!bridgeSession.current) {
-      toast.error("التحليل الشامل يتطلب الجسر المحلي (فكّ التطبيق أولًا).");
+  const sendChatMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput;
+    setChatMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setChatInput("");
+
+    if (!activeFile || typeof activeFile.content !== "string") {
+      setChatMessages(prev => [...prev, { role: "ai", content: "الرجاء اختيار ملف نصي ليقوم الذكاء الاصطناعي بتحليله." }]);
       return;
     }
+    if (!aiSettings.apiKey) {
+      setChatMessages(prev => [...prev, { role: "ai", content: `الرجاء إعداد مفتاح ${aiSettings.provider} أولاً.` }]);
+      setShowSettings(true);
+      return;
+    }
+
     setIsAnalyzing(true);
+    setChatMessages(prev => [...prev, { role: "ai", content: "جاري التفكير... Thinking..." }]);
+
     try {
-      const files = await bridgeDump();
-      if (files.length === 0) {
-        setChatMessages((prev) => [
-          ...prev,
-          { role: "ai", content: "لم أجد ملفات نصية مفكوكة لتحليلها." },
-        ]);
-        return;
-      }
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "user",
-          content:
-            "🔎 تحليل شامل: افحص المشروع كاملًا واذكر الملفات القابلة للتعديل (إعلانات، شراء، تحديثات، جذر، توقيع) مع مساراتها.",
-        },
-      ]);
-      const answer = await analyzeProject(
-        resolveAISettings(),
-        files,
-        "حلّل هذا التطبيق المفكوك بالكامل. اذكر: 1) الملفات القابلة للتعديل مباشرة (إعلانات/شراء/تحديثات/جذر/توقيع) مع مساراتها، 2) أي مخاطر أو سلوكيات مشبوهة، 3) توصيات بالتعديلات الجاهزة.",
-      );
-      setChatMessages((prev) => [...prev, { role: "ai", content: answer }]);
+      const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg);
+      setPendingCode(actionResult.modifiedCode);
+      setOriginalCode(activeFile.content);
+      setChatMessages(prev => [...prev.slice(0, -1), { role: "ai", content: `${actionResult.explanation}\n\nراجع التغييرات في عرض Diff.` }]);
+      setViewMode("diff");
+      toast.info("اقترح الذكاء الاصطناعي تغييرات");
     } catch (err: any) {
-      setChatMessages((prev) => [...prev, { role: "ai", content: `خطأ: ${err.message}` }]);
+      setChatMessages(prev => [...prev.slice(0, -1), { role: "ai", content: `خطأ: ${err.message}` }]);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
   const applyChanges = () => {
-    if (pendingCode && activeFilePath) {
-      handleEditorChange(pendingCode);
-      setPendingCode(null);
-      setViewMode("editor");
-      toast.success("تم تطبيق التغييرات");
-    }
+    if (pendingCode === null || !activeFilePath) return;
+    apkProcessor.updateFileContent(activeFilePath, pendingCode);
+    setApkFiles(apkProcessor.getAllFiles());
+    setPendingCode(null);
+    setViewMode("editor");
+    toast.success("تم تطبيق التغييرات");
   };
 
   const discardChanges = () => {
     setPendingCode(null);
     setViewMode("editor");
+    toast.info("تم إلغاء التغييرات");
   };
 
-  // --- Mods (Toolbox) handlers ---
-  const openMods = async () => {
-    setShowMods(true);
-    if (mods.length === 0) {
-      try {
-        setMods(await bridgeListMods());
-      } catch (err: any) {
-        toast.error(`تعذّر تحميل القوالب: ${err.message}`);
-      }
+  const groupedByFolder = React.useMemo(() => {
+    const groups: Record<string, APKFile[]> = {};
+    for (const f of filteredFiles) {
+      const parts = f.path.split("/");
+      const folder = parts.length > 1 ? parts.slice(0, -1).join("/") : "root";
+      if (!groups[folder]) groups[folder] = [];
+      groups[folder].push(f);
     }
+    return groups;
+  }, [filteredFiles]);
+
+  const toggleFolder = (folder: string) => {
+    const next = new Set(expandedFolders);
+    if (next.has(folder)) next.delete(folder);
+    else next.add(folder);
+    setExpandedFolders(next);
   };
 
-  const patchModState = (modId: string, patch: Partial<ModEntry>) => {
-    setModState((s) => {
-      const next: Record<string, ModEntry> = { ...s };
-      next[modId] = { ...(s[modId] ?? {}), ...patch };
-      return next;
-    });
+  const renderFileTree = () => {
+    return Object.entries(groupedByFolder)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([folder, files]) => (
+        <div key={folder} className="select-none">
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 text-[13px] cursor-pointer hover:bg-slate-800/70 text-slate-300"
+            onClick={() => toggleFolder(folder)}
+          >
+            {expandedFolders.has(folder) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            <Folder className="h-3.5 w-3.5 text-amber-400" />
+            <span className="truncate font-medium">{folder === "root" ? "/" : folder}</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">{files.length}</span>
+          </div>
+          {expandedFolders.has(folder) && (
+            <div className="ml-2 border-l border-slate-800">
+              {files
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(file => (
+                  <div
+                    key={file.path}
+                    className={`flex items-center gap-2 pl-6 pr-2 py-1 text-xs cursor-pointer hover:bg-slate-800 group ${
+                      activeFilePath === file.path ? "bg-primary/20 text-primary border-r-2 border-primary" : "text-slate-400"
+                    }`}
+                    onClick={() => openFile(file.path)}
+                    title={file.path}
+                  >
+                    {file.path.endsWith(".xml") ? (
+                      <FileCode className="h-3.5 w-3.5 text-blue-400" />
+                    ) : file.path.endsWith(".dex") ? (
+                      <Cpu className="h-3.5 w-3.5 text-purple-400" />
+                    ) : file.path.endsWith(".so") ? (
+                      <Layers className="h-3.5 w-3.5 text-orange-400" />
+                    ) : file.category === "security" ? (
+                      <Lock className="h-3.5 w-3.5 text-red-400" />
+                    ) : file.path.match(/\.(png|jpg|jpeg|webp)$/) ? (
+                      <ImageIcon className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : file.path.endsWith(".json") ? (
+                      <FileJson className="h-3.5 w-3.5 text-yellow-400" />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5" />
+                    )}
+                    <span className="flex-1 truncate">{file.name}</span>
+                    <span className="text-[9px] opacity-60">{formatBytes(file.size)}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      ));
   };
 
-  const runDetectMod = async (modId: string) => {
-    patchModState(modId, { busy: true, error: null });
-    try {
-      const { count, matches } = await bridgeDetectMod(modId);
-      patchModState(modId, { busy: false, detected: matches, changed: null, error: null });
-      toast.success(`وجد ${count} موضعًا قابلًا للتعديل`);
-    } catch (err: any) {
-      patchModState(modId, { busy: false, error: err.message });
-      toast.error(`فشل الاكتشاف: ${err.message}`);
-    }
-  };
-
-  const runApplyMod = async (modId: string) => {
-    patchModState(modId, { busy: true, error: null });
-    try {
-      const { changed } = await bridgeApplyMod(modId);
-      patchModState(modId, { busy: false, changed, detected: null, error: null });
-      // Refresh the modified files in the editor view.
-      for (const p of changed) {
-        try {
-          const content = await bridgeReadFile(p);
-          setApkFiles((prev) => prev.map((f) => (f.path === p ? { ...f, content } : f)));
-        } catch {
-          /* file may be binary or unreadable — ignore */
-        }
-      }
-      toast.success(`تم التعديل في ${changed.length} ملفًا — اضغط Build لإعادة التوقيع`);
-    } catch (err: any) {
-      patchModState(modId, { busy: false, error: err.message });
-      toast.error(`فشل التطبيق: ${err.message}`);
-    }
-  };
-
-  // Workflow pipeline status (all visible buttons + their state).
-  const workflowSteps = [
-    {
-      key: "upload",
-      label: "ارفع APK",
-      done: apkFiles.length > 0,
-      active: apkFiles.length === 0 && isLoading,
-    },
-    {
-      key: "decompile",
-      label: "فكّ",
-      done: bridgeSession.current && !!apkInfo,
-      active: bridgeSession.current && !apkInfo && isLoading,
-    },
-    {
-      key: "edit",
-      label: "عدّل",
-      done: activeFilePath !== "",
-      active: apkFiles.length > 0 && activeFilePath === "",
-    },
-    { key: "build", label: "ابنِ", done: built, active: built && bridgeOnline },
-    {
-      key: "sign",
-      label: "وقّع",
-      done: built && bridgeSession.current,
-      active: built && !bridgeSession.current,
-    },
-    {
-      key: "install",
-      label: "ثبّت",
-      done: built && bridgeSession.current,
-      active: built && !bridgeSession.current,
-    },
-  ] as const;
+  // Derive language
+  const editorLanguage = activeFile ? getFileLanguage(activeFile.name) : "plaintext";
+  const isImage = activeFile?.path.match(/\.(png|jpg|jpeg|webp|gif|ico)$/i);
+  const isBinaryView = activeFile?.type === "binary" || activeFile?.path.endsWith(".dex") || activeFile?.path.endsWith(".so") || activeFile?.path.endsWith(".arsc");
 
   return (
     <div
-      className="flex h-screen w-full bg-[#070810] text-slate-100 overflow-hidden dark"
-      onDragOver={(e) => {
-        e.preventDefault();
-        setIsDragging(true);
-      }}
+      className="flex h-screen w-full bg-[#0a0a0f] text-slate-100 overflow-hidden font-sans dark selection:bg-primary/30"
+      onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
-      {showOnboarding && (
-        <Onboarding
-          onDone={(m) => {
-            setEditMode(m);
-            setShowOnboarding(false);
-          }}
-        />
-      )}
-
-      <SetupGuide
-        open={showSetup}
-        onOpenChange={setShowSetup}
-        baseUrl={getBridgeBase()}
-        mode={editMode}
-      />
-
-      <ConnectionSettings
-        open={showConn}
-        onOpenChange={setShowConn}
-        onModeChange={(m) => {
-          switchMode(m);
-          setShowConn(false);
-        }}
-      />
-
       {isDragging && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center border-2 border-dashed border-primary m-4 rounded-2xl pointer-events-none">
-          <Upload className="h-16 w-16 text-primary animate-bounce" />
+          <div className="text-center space-y-4">
+            <Upload className="h-16 w-16 mx-auto text-primary animate-bounce" />
+            <p className="text-2xl font-bold">أسقط ملف APK هنا</p>
+            <p className="text-slate-400">Drop APK file here</p>
+          </div>
         </div>
       )}
 
-      {/* Sidebar LEFT */}
-      <aside className="w-80 border-r border-slate-800 flex flex-col bg-[#0f0f14]">
-        <Tabs
-          value={leftTab}
-          onValueChange={(v) => setLeftTab(v as any)}
-          className="flex-1 flex flex-col min-h-0"
-        >
-          <TabsList className="grid grid-cols-3 m-2 h-9 bg-slate-800/50">
-            <TabsTrigger value="categories">
-              <Package className="h-4 w-4" />
+      <SetupGuide open={showSetup} onOpenChange={setShowSetup} />
+
+      {/* LEFT SIDEBAR */}
+      <aside className="w-[320px] border-r border-slate-800 flex flex-col bg-[#0f0f14]">
+        {/* Header */}
+        <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-2 bg-[#0f0f14]">
+          <div className="flex items-center gap-2 font-bold">
+            <div className="bg-primary/20 p-1.5 rounded-lg">
+              <Code2 className="h-4 w-4 text-primary" />
+            </div>
+            <span className="text-sm">APP-FORGE</span>
+            <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">v2</Badge>
+          </div>
+          <div className="flex gap-1">
+            <label className="h-7 w-7 grid place-items-center hover:bg-slate-800 rounded cursor-pointer" title="رفع APK">
+              <Upload className="h-4 w-4" />
+              <input type="file" accept=".apk,.zip,.xapk" className="hidden" onChange={handleFileInput} />
+            </label>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleExport} disabled={apkFiles.length === 0}>
+              <Download className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* APK Info Header if loaded */}
+        {apkInfo && (
+          <div className="p-3 border-b border-slate-800 bg-gradient-to-br from-primary/10 to-transparent space-y-2">
+            <div className="flex items-start justify-between">
+              <div className="flex gap-2">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-purple-600 grid place-items-center text-white font-bold text-sm">
+                  {apkInfo.appName?.[0] || apkInfo.packageName[0]?.toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-sm truncate max-w-[180px]">{apkInfo.appName || apkInfo.packageName}</p>
+                  <p className="text-[11px] text-slate-400 truncate max-w-[180px]">{apkInfo.packageName}</p>
+                </div>
+              </div>
+              <Badge variant={apkInfo.isSigned ? "default" : "destructive"} className="text-[10px]">
+                {apkInfo.isSigned ? "مُوقّع" : "غير مُوقّع"}
+              </Badge>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                <div className="text-slate-400 text-[10px]">الإصدار</div>
+                <div className="font-bold">{apkInfo.versionName}</div>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                <div className="text-slate-400 text-[10px]">الملفات</div>
+                <div className="font-bold">{apkInfo.fileCount}</div>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
+                <div className="text-slate-400 text-[10px]">الحجم</div>
+                <div className="font-bold">{formatBytes(apkInfo.fileSize)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Left Tabs */}
+        <Tabs value={leftTab} onValueChange={v => setLeftTab(v as any)} className="flex-1 flex flex-col min-h-0">
+          <TabsList className="grid grid-cols-3 m-2 bg-slate-800/50 h-8">
+            <TabsTrigger value="categories" className="text-[11px] h-6 data-[state=active]:bg-primary">
+              <Box className="h-3 w-3 mr-1" /> تصنيف
             </TabsTrigger>
-            <TabsTrigger value="files">
-              <FileCode className="h-4 w-4" />
+            <TabsTrigger value="files" className="text-[11px] h-6 data-[state=active]:bg-primary">
+              <Folder className="h-3 w-3 mr-1" /> ملفات
             </TabsTrigger>
-            <TabsTrigger value="certs">
-              <ShieldCheck className="h-4 w-4" />
+            <TabsTrigger value="certs" className="text-[11px] h-6 data-[state=active]:bg-primary">
+              <Lock className="h-3 w-3 mr-1" /> شهادات
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="categories" className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full p-2">
-              <div className="space-y-2">
-                {categoryStats.map((stat) => (
-                  <Card
-                    key={stat.category}
-                    className={`cursor-pointer transition-colors ${activeCategory === stat.category ? "bg-primary/20 border-primary" : "bg-slate-800/30 border-slate-800"}`}
-                    onClick={() => setActiveCategory(stat.category)}
-                  >
-                    <CardContent className="p-3 flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">
-                          {CATEGORY_META[stat.category]?.icon || "📁"}
-                        </span>
-                        <div className="text-xs">
-                          {CATEGORY_META[stat.category]?.labelAr || stat.category}
-                        </div>
+          <div className="px-3 pb-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
+              <Input
+                placeholder="بحث... Search"
+                className="pl-8 h-8 bg-slate-900 border-slate-800 text-xs"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <TabsContent value="categories" className="flex-1 mt-0 overflow-hidden flex flex-col">
+            {/* Category Filter Chips */}
+            <div className="p-2 flex flex-wrap gap-1.5">
+              <Badge
+                variant={activeCategory === "all" ? "default" : "outline"}
+                className="cursor-pointer text-[10px] px-2 py-0.5"
+                onClick={() => setActiveCategory("all")}
+              >
+                الكل {apkFiles.length}
+              </Badge>
+              {categoryStats.map(stat => (
+                <Badge
+                  key={stat.category}
+                  variant={activeCategory === stat.category ? "default" : "outline"}
+                  className={`cursor-pointer text-[10px] px-2 py-0.5 border ${activeCategory === stat.category ? "" : CATEGORY_META[stat.category].color}`}
+                  onClick={() => setActiveCategory(stat.category)}
+                >
+                  {CATEGORY_META[stat.category].icon} {CATEGORY_META[stat.category].labelAr} {stat.count}
+                </Badge>
+              ))}
+            </div>
+
+            <ScrollArea className="flex-1">
+              <div className="p-2 space-y-2">
+                {categoryStats.length === 0 ? (
+                  <div className="py-10 text-center text-slate-500 text-xs space-y-3">
+                    <Package className="h-8 w-8 mx-auto opacity-30" />
+                    <p>لا يوجد APK محمل<br/>Upload APK to see categories</p>
+                    <label className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-xs cursor-pointer">
+                      <Upload className="h-3 w-3" /> رفع APK
+                      <input type="file" accept=".apk,.zip" className="hidden" onChange={handleFileInput} />
+                    </label>
+                  </div>
+                ) : (
+                  <>
+                    {/* Category Cards */}
+                    <div className="grid gap-2">
+                      {categoryStats.map(stat => {
+                        const meta = CATEGORY_META[stat.category];
+                        return (
+                          <div
+                            key={stat.category}
+                            onClick={() => setActiveCategory(stat.category)}
+                            className={`p-3 rounded-xl border cursor-pointer transition-all hover:scale-[1.02] ${
+                              activeCategory === stat.category ? "bg-primary/10 border-primary/50" : "bg-slate-800/30 border-slate-800 hover:border-slate-700"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">{meta.icon}</span>
+                                <div>
+                                  <div className="text-xs font-bold flex items-center gap-1">
+                                    {meta.labelAr} <span className="text-[10px] opacity-60">/ {meta.label}</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">{meta.description}</div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm font-bold">{stat.count}</div>
+                                <div className="text-[10px] text-slate-500">{formatBytes(stat.totalSize)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-800 mt-3">
+                      <div className="text-[11px] font-bold text-slate-300 mb-2 px-1">الملفات المفلترة - {filteredFiles.length}</div>
+                      <div className="space-y-0.5 max-h-[30vh] overflow-auto">
+                        {filteredFiles.slice(0, 50).map(f => (
+                          <div
+                            key={f.path}
+                            onClick={() => openFile(f.path)}
+                            className={`flex items-center gap-2 px-2 py-1 rounded text-[11px] cursor-pointer hover:bg-slate-800 ${
+                              activeFilePath === f.path ? "bg-primary/20 text-primary" : "text-slate-400"
+                            }`}
+                          >
+                            <span>{CATEGORY_META[f.category].icon}</span>
+                            <span className="truncate flex-1">{f.path}</span>
+                          </div>
+                        ))}
+                        {filteredFiles.length > 50 && <div className="text-[10px] text-slate-500 px-2 py-1">و {filteredFiles.length - 50} ملف آخر...</div>}
                       </div>
-                      <div className="text-xs font-bold">{stat.count}</div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="files" className="flex-1 mt-0 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1">
+              <div className="py-1">{renderFileTree()}</div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="certs" className="flex-1 mt-0 overflow-hidden flex flex-col p-2">
+            <ScrollArea className="flex-1">
+              {certificates.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-xs">
+                  <Shield className="h-8 w-8 mx-auto opacity-30 mb-2" />
+                  <p>لا توجد شهادات<br/>No certificates found</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {certificates.map(cert => (
+                    <Card key={cert.path} className="bg-slate-800/30 border-slate-800">
+                      <CardContent className="p-3 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold flex items-center gap-1">
+                            <Lock className="h-3 w-3" /> {cert.fileName}
+                          </span>
+                          <Badge variant={cert.isDebug ? "destructive" : "secondary"} className="text-[9px]">
+                            {cert.type} {cert.isDebug ? "DEBUG" : ""}
+                          </Badge>
+                        </div>
+                        <div className="text-[10px] space-y-1 text-slate-400">
+                          <div>المسار: {cert.path}</div>
+                          <div>الحجم: {formatBytes(cert.size)}</div>
+                          {cert.issuer && <div className="break-all">المُصدر: {cert.issuer}</div>}
+                          {cert.fingerprintSHA256 && (
+                            <div className="break-all p-1 bg-slate-900 rounded font-mono text-[9px]">{cert.fingerprintSHA256.slice(0, 120)}...</div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                  <Card className="border-amber-500/20 bg-amber-500/5">
+                    <CardContent className="p-3 text-[11px] text-amber-300/80">
+                      <div className="flex gap-2">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>سيتم إزالة التوقيع القديم عند إعادة البناء. ستحتاج لتوقيع جديد بـ apksigner.</span>
+                      </div>
                     </CardContent>
                   </Card>
-                ))}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="files" className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full p-2">
-              <div className="space-y-1">
-                {filteredFiles.slice(0, 100).map((f) => (
-                  <div
-                    key={f.path}
-                    onClick={() => openFile(f.path)}
-                    className={`px-2 py-1 text-xs rounded cursor-pointer truncate ${activeFilePath === f.path ? "bg-primary text-white" : "hover:bg-slate-800 text-slate-400"}`}
-                  >
-                    {f.name}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="certs" className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full p-2">
-              <div className="space-y-2">
-                {certificates.map((c) => (
-                  <Card key={c.path} className="bg-slate-800/30 border-slate-800 p-2 text-[10px]">
-                    <div className="font-bold truncate">{c.fileName}</div>
-                    <div className="text-slate-400">{c.issuer}</div>
-                  </Card>
-                ))}
-              </div>
+                </div>
+              )}
             </ScrollArea>
           </TabsContent>
         </Tabs>
+
+        <div className="p-2 border-t border-slate-800 text-[10px] text-slate-500 flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+          {apkFiles.length > 0 ? `${apkFiles.length} ملف | ${categoryStats.length} تصنيف` : "في انتظار APK"}
+        </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col bg-[#0f1117] min-w-0">
-        <header className="shrink-0 border-b border-slate-800 bg-[#0b0c12]/95">
-          {/* Top bar: mode + status + action buttons */}
-          <div className="h-12 flex items-center justify-between px-3 gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="font-black tracking-tight text-sm shrink-0">
-                APP<span className="brand-gradient-text">-</span>FORGE
-              </div>
-              {/* Mode toggle */}
-              <div className="flex items-center rounded-lg bg-slate-800/70 border border-slate-700 p-0.5 shrink-0">
-                <button
-                  onClick={() => switchMode("local")}
-                  className={`flex items-center gap-1.5 px-3 h-7 rounded-md text-[11px] font-bold transition-colors ${
-                    editMode === "local"
-                      ? "brand-gradient-bg text-white"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                  title="التعديل المحلي — يعمل الجسر على جهازك"
-                >
-                  <Laptop className="h-3.5 w-3.5" /> محلي
-                </button>
-                <button
-                  onClick={() => switchMode("cloud")}
-                  className={`flex items-center gap-1.5 px-3 h-7 rounded-md text-[11px] font-bold transition-colors ${
-                    editMode === "cloud"
-                      ? "brand-gradient-bg text-white"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                  title="التعديل السحابي — الاتصال بخادم جسر مستضاف"
-                >
-                  <Cloud className="h-3.5 w-3.5" /> سحابي
-                </button>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-slate-400"
-                onClick={() => setShowConn(true)}
-                title="إعدادات الاتصال"
-              >
-                <PlugZap className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-none">
-              <Button
-                size="sm"
-                className="h-7 text-xs gap-1 shrink-0"
-                onClick={() => document.getElementById("apk-upload-input")?.click()}
-                disabled={!bridgeOnline}
-                title={bridgeOnline ? "ارفع ملف APK جديد" : "فعّل الجسر أولًا"}
-              >
-                <Upload className="h-3 w-3" /> رفع APK
-              </Button>
-              <input
-                id="apk-upload-input"
-                type="file"
-                accept=".apk,.xapk,.zip"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleAPKUpload(f);
-                  e.currentTarget.value = "";
-                }}
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0 shrink-0"
-                onClick={() => setShowHelp(true)}
-                title="الدليل"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </Button>
-              <span
-                className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded shrink-0 ${
-                  bridgeOnline
-                    ? "bg-emerald-500/10 text-emerald-400"
-                    : "bg-rose-500/10 text-rose-400"
-                }`}
-                title={
-                  bridgeOnline
-                    ? editMode === "cloud"
-                      ? "خادم السحابة متصل (فك + توقيع)"
-                      : "الجسر المحلي متصل (فك + توقيع)"
-                    : editMode === "cloud"
-                      ? "خادم السحابة غير متصل"
-                      : "الجسر المحلي غير متصل — التشغيل داخل المتصفح فقط"
-                }
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${bridgeOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`}
-                />
-                {editMode === "cloud"
-                  ? bridgeOnline
-                    ? "Cloud"
-                    : "Browser"
-                  : bridgeOnline
-                    ? "Bridge"
-                    : "Browser"}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs shrink-0"
-                onClick={() => setShowSetup(true)}
-              >
-                <Wrench className="h-3 w-3 mr-1" /> Setup
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs shrink-0"
-                onClick={() => setShowSettings(true)}
-              >
-                <Settings className="h-3 w-3 mr-1" /> AI
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs shrink-0"
-                onClick={openMods}
-                disabled={!bridgeSession.current}
-              >
-                <Wand2 className="h-3 w-3 mr-1" /> Mods
-              </Button>
-              <Button
-                size="sm"
-                className="h-7 text-xs gap-1 shrink-0 brand-gradient-bg"
-                onClick={handleRebuild}
-              >
-                <Rocket className="h-3 w-3" /> Build
-              </Button>
+      {/* CENTER */}
+      <main className="flex-1 flex flex-col min-w-0 bg-[#0f1117]">
+        {/* Top bar */}
+        <header className="h-11 border-b border-slate-800 flex items-center justify-between px-3 bg-[#0f0f14] shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Open tabs */}
+            <div className="flex items-center gap-1 overflow-auto max-w-[60vw] scrollbar-none">
+              {openTabs.map(path => {
+                const file = apkFiles.find(f => f.path === path);
+                return (
+                  <div
+                    key={path}
+                    onClick={() => setActiveFilePath(path)}
+                    className={`group flex items-center gap-1.5 px-3 py-1 rounded-md text-xs cursor-pointer border whitespace-nowrap shrink-0 ${
+                      activeFilePath === path ? "bg-primary text-primary-foreground border-primary" : "bg-slate-800 border-slate-800 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <span className="truncate max-w-[120px]">{file?.name || path.split("/").pop()}</span>
+                    <X className="h-3 w-3 opacity-60 hover:opacity-100" onClick={e => closeTab(path, e)} />
+                  </div>
+                );
+              })}
+              {openTabs.length === 0 && <span className="text-xs text-slate-500">لا يوجد ملف مفتوح</span>}
             </div>
           </div>
 
-          {/* Workflow status bar */}
-          <div className="px-3 pb-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-            {workflowSteps.map((s, i) => (
-              <React.Fragment key={s.key}>
-                <div
-                  className={`flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${
-                    s.done
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                      : s.active
-                        ? "border-primary/40 bg-primary/10 text-primary animate-pulse"
-                        : "border-slate-700 text-slate-500"
-                  }`}
-                >
-                  {s.done ? (
-                    <Check className="h-3 w-3" />
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                  )}
-                  {s.label}
-                </div>
-                {i < workflowSteps.length - 1 && (
-                  <span className="text-slate-700 text-[10px]">‹</span>
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-
-          {/* Tabs */}
-          <div className="px-3 pb-1.5 flex gap-1 overflow-x-auto scrollbar-none">
-            {openTabs.map((path) => (
-              <Badge
-                key={path}
-                variant={activeFilePath === path ? "default" : "secondary"}
-                className="cursor-pointer gap-1 px-2 py-0.5 text-[11px] shrink-0"
-                onClick={() => openFile(path)}
-              >
-                {path.split("/").pop()}
-                <X className="h-3 w-3" onClick={(e: React.MouseEvent) => closeTab(path, e)} />
-              </Badge>
-            ))}
-            {openTabs.length === 0 && (
-              <span className="text-[10px] text-slate-600">
-                ارفع APK أو افتح ملفًا لبدء التعديل
-              </span>
+          <div className="flex items-center gap-1.5">
+            {activeFile && (
+              <>
+                <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setViewMode(viewMode === "editor" ? "diff" : "editor")}>
+                  <Split className="h-3 w-3 mr-1" />
+                  {viewMode === "editor" ? "Diff" : "Editor"}
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={runAnalysis} disabled={isAnalyzing}>
+                  {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                  تحليل
+                </Button>
+              </>
             )}
+            <Button size="sm" className="h-7 text-[11px] bg-primary" onClick={handleRebuild} disabled={apkFiles.length === 0}>
+              <Wrench className="h-3 w-3 mr-1" />
+              بناء APK
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSetup(true)} title="Setup">
+              <Settings className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSettings(true)}>
+              <Key className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </header>
 
-        <div className="flex-1 relative overflow-hidden">
-          {activeFile ? (
-            viewMode === "editor" ? (
-              <Editor
-                height="100%"
-                theme="vs-dark"
-                language={getFileLanguage(activeFile.name)}
-                value={typeof activeFile.content === "string" ? activeFile.content : ""}
-                onChange={handleEditorChange}
-                options={{ minimap: { enabled: false }, fontSize: 13 }}
-              />
-            ) : (
-              <DiffEditor
-                height="100%"
-                theme="vs-dark"
-                original={originalCode}
-                modified={
-                  pendingCode || (typeof activeFile.content === "string" ? activeFile.content : "")
-                }
-                language={getFileLanguage(activeFile.name)}
-              />
-            )
-          ) : (
-            <div className="h-full flex items-center justify-center p-6">
-              <div className="text-center max-w-md">
-                <div className="mx-auto mb-4 p-4 rounded-2xl brand-gradient-bg brand-ring-glow w-fit">
-                  <Upload className="h-8 w-8 text-white" />
-                </div>
-                <h3 className="text-lg font-black mb-1">
-                  {editMode === "cloud"
-                    ? "افتح مشروعًا من السحابة أو ارفع APK"
-                    : "ابدأ برفع ملف APK"}
-                </h3>
-                <p className="text-sm text-slate-400 leading-relaxed mb-4">
-                  اسحب الملف وأفلته هنا أو اضغط الزر.{" "}
-                  {editMode === "local"
-                    ? "مع الجسر المحلي يُفكّ التطبيق إلى Smali ومانيفست وموارد حقيقية."
-                    : "يُفكّ التطبيق على خادمك السحابي — لا حاجة لتثبيت أدوات محليًا."}
-                </p>
-                <div className="flex flex-col gap-2 items-center">
-                  <Button
-                    onClick={() => document.getElementById("apk-upload-input")?.click()}
-                    disabled={!bridgeOnline}
-                    className="gap-2 brand-gradient-bg"
-                  >
-                    <Upload className="h-4 w-4" /> رفع APK
-                  </Button>
-                  {!bridgeOnline && (
-                    <div className="flex items-center gap-2 text-xs text-rose-400">
-                      <X className="h-3.5 w-3.5" />
-                      {editMode === "cloud"
-                        ? "خادم السحابة غير متصل — افتح «إعدادات الاتصال» وأدخل الرابط"
-                        : "الجسر غير متصل — اضغط «Setup» أو افتح «إعدادات الاتصال»"}
-                    </div>
-                  )}
-                </div>
-              </div>
+        {/* Center sub tabs for file types */}
+        {activeFile && (
+          <div className="h-9 border-b border-slate-800 bg-slate-900/30 flex items-center px-2 gap-2 shrink-0">
+            <Tabs value={centerTab} onValueChange={v => setCenterTab(v as any)} className="h-full">
+              <TabsList className="h-7 bg-transparent gap-1">
+                <TabsTrigger value="code" className="h-6 text-[11px] data-[state=active]:bg-slate-800">
+                  <Code2 className="h-3 w-3 mr-1" /> الكود
+                </TabsTrigger>
+                {activeFilePath === "AndroidManifest.xml" && (
+                  <TabsTrigger value="visual" className="h-6 text-[11px] data-[state=active]:bg-slate-800">
+                    <Eye className="h-3 w-3 mr-1" /> مرئي Visual
+                  </TabsTrigger>
+                )}
+                <TabsTrigger value="preview" className="h-6 text-[11px] data-[state=active]:bg-slate-800">
+                  <ImageIcon className="h-3 w-3 mr-1" /> معاينة
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="ml-auto text-[10px] text-slate-500 flex items-center gap-2">
+              <span>{formatBytes(activeFile.size)}</span>
+              <Badge variant="outline" className="text-[9px]">{activeFile.category}</Badge>
+              {activeFile.editable ? <Badge className="text-[9px] bg-emerald-500/20 text-emerald-400 border-emerald-500/20">قابل للتعديل</Badge> : <Badge variant="destructive" className="text-[9px]">للقراءة فقط</Badge>}
             </div>
+          </div>
+        )}
+
+        {/* Editor Area */}
+        <div className="flex-1 relative bg-[#0e0e12]">
+          {!activeFile ? (
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+              {apkFiles.length === 0 ? (
+                <div className="max-w-md space-y-6">
+                  <div className="h-24 w-24 mx-auto rounded-3xl bg-gradient-to-br from-primary to-purple-600 grid place-items-center">
+                    <Smartphone className="h-12 w-12 text-white" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-black tracking-tight">محرر APK الاحترافي</h2>
+                    <p className="text-slate-400 text-sm">قم بتحميل أي تطبيق أندرويد لتعديله. سيتم فرز الملفات حسب الشهادات، الإعدادات، الموارد، والشيفرة تلقائياً.</p>
+                  </div>
+                  <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-slate-700 rounded-2xl p-8 hover:border-primary/50 hover:bg-primary/5 cursor-pointer transition-all">
+                    <Upload className="h-8 w-8 text-slate-400" />
+                    <span className="text-sm font-semibold">اسحب APK هنا أو اضغط للرفع</span>
+                    <span className="text-[11px] text-slate-500">يدعم .apk .zip .xapk - معالجة محلية 100%</span>
+                    <input type="file" accept=".apk,.zip,.xapk" className="hidden" onChange={handleFileInput} />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3 text-left">
+                    {[
+                      { icon: "🔐", t: "إدارة الشهادات", d: "عرض وفهم توقيعات META-INF" },
+                      { icon: "📱", t: "محرر البيان", d: "تعديل package, version, صلاحيات" },
+                      { icon: "🎨", t: "الموارد", d: "صور، layouts, strings" },
+                      { icon: "💻", t: "الشيفرة", d: "DEX, Smali تحليل" },
+                    ].map((f, i) => (
+                      <div key={i} className="p-3 rounded-xl bg-slate-800/40 border border-slate-800 text-left">
+                        <div className="text-lg">{f.icon}</div>
+                        <div className="text-xs font-bold mt-1">{f.t}</div>
+                        <div className="text-[11px] text-slate-500">{f.d}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-slate-500 text-sm">اختر ملفاً من الجانب الأيسر لبدء التعديل</div>
+              )}
+            </div>
+          ) : centerTab === "visual" && activeFilePath === "AndroidManifest.xml" ? (
+            <ScrollArea className="h-full">
+              <div className="p-6 max-w-3xl mx-auto space-y-6">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-5 w-5 text-primary" />
+                  <h2 className="text-lg font-bold">محرر البيان المرئي - Visual Manifest Editor</h2>
+                </div>
+
+                <Card className="bg-slate-800/30 border-slate-700">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">معلومات التطبيق الأساسية</CardTitle>
+                    <CardDescription className="text-xs">تعديل الحزمة والإصدار</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">اسم الحزمة Package Name</Label>
+                        <Input value={manifestEdit.packageName} onChange={e => setManifestEdit(s => ({ ...s, packageName: e.target.value }))} className="bg-slate-900 border-slate-700 text-sm" />
+                        <p className="text-[10px] text-slate-500">مثال: com.example.app</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">اسم التطبيق (اختياري)</Label>
+                        <Input value={apkInfo?.appName || ""} onChange={e => setApkInfo(prev => (prev ? { ...prev, appName: e.target.value } : prev))} className="bg-slate-900 border-slate-700 text-sm" placeholder="My App" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">رقم الإصدار Version Name</Label>
+                        <Input value={manifestEdit.versionName} onChange={e => setManifestEdit(s => ({ ...s, versionName: e.target.value }))} className="bg-slate-900 border-slate-700 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">كود الإصدار Version Code</Label>
+                        <Input value={manifestEdit.versionCode} onChange={e => setManifestEdit(s => ({ ...s, versionCode: e.target.value }))} className="bg-slate-900 border-slate-700 text-sm" type="number" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Min SDK</Label>
+                        <Input value={apkInfo?.minSdk || ""} onChange={e => setApkInfo(prev => (prev ? { ...prev, minSdk: e.target.value } : prev))} className="bg-slate-900 border-slate-700 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Target SDK</Label>
+                        <Input value={apkInfo?.targetSdk || ""} onChange={e => setApkInfo(prev => (prev ? { ...prev, targetSdk: e.target.value } : prev))} className="bg-slate-900 border-slate-700 text-sm" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={handleSaveManifest} className="h-8">
+                        <Save className="h-3.5 w-3.5 mr-1" /> حفظ
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setCenterTab("code")} className="h-8">
+                        تحرير الكود الخام
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {apkInfo && (
+                  <Card className="bg-slate-800/30 border-slate-700">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Database className="h-4 w-4" /> المكونات
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                      <div className="bg-slate-900 rounded-lg p-3 text-center">
+                        <div className="text-lg font-bold">{apkInfo.activities.length}</div>
+                        <div className="text-[11px] text-slate-400">Activities</div>
+                      </div>
+                      <div className="bg-slate-900 rounded-lg p-3 text-center">
+                        <div className="text-lg font-bold">{apkInfo.services.length}</div>
+                        <div className="text-[11px] text-slate-400">Services</div>
+                      </div>
+                      <div className="bg-slate-900 rounded-lg p-3 text-center">
+                        <div className="text-lg font-bold">{apkInfo.receivers.length}</div>
+                        <div className="text-[11px] text-slate-400">Receivers</div>
+                      </div>
+                      <div className="bg-slate-900 rounded-lg p-3 text-center">
+                        <div className="text-lg font-bold">{apkInfo.providers.length}</div>
+                        <div className="text-[11px] text-slate-400">Providers</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <Card className="border-primary/20 bg-primary/5">
+                  <CardContent className="p-4 text-xs text-primary/80 flex gap-2">
+                    <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>إذا كان AndroidManifest.xml في صيغة ثنائية binary، تحتاج إلى فك تشفير عبر apktool في الواجهة الخلفية. النسخة النصية الحالية قابلة للتعديل مباشرة إذا كانت decompiled مسبقاً.</span>
+                  </CardContent>
+                </Card>
+              </div>
+            </ScrollArea>
+          ) : centerTab === "preview" ? (
+            <div className="h-full flex items-center justify-center p-6 bg-[#0a0a0f] overflow-auto">
+              {isImage && activeFile.rawContent ? (
+                <div className="space-y-4 text-center">
+                  <img
+                    src={URL.createObjectURL(new Blob([activeFile.rawContent as Uint8Array]))}
+                    alt={activeFile.name}
+                    className="max-w-full max-h-[60vh] mx-auto rounded-xl border border-slate-800 shadow-2xl"
+                  />
+                  <div className="text-xs text-slate-400">
+                    {activeFile.name} • {formatBytes(activeFile.size)}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-400 whitespace-pre-wrap font-mono max-w-3xl mx-auto p-6 bg-slate-900/50 rounded-xl border border-slate-800 overflow-auto max-h-[80vh]">
+                  {typeof activeFile.content === "string" ? activeFile.content : "[Binary preview not available]"}
+                </div>
+              )}
+            </div>
+          ) : viewMode === "editor" ? (
+            <Editor
+              height="100%"
+              language={editorLanguage}
+              theme="vs-dark"
+              value={typeof activeFile.content === "string" ? activeFile.content : ""}
+              onChange={handleEditorChange}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                fontFamily: "JetBrains Mono, monospace",
+                automaticLayout: true,
+                wordWrap: "on",
+                scrollBeyondLastLine: false,
+                readOnly: !activeFile.editable,
+              }}
+            />
+          ) : (
+            <DiffEditor
+              height="100%"
+              original={originalCode}
+              modified={pendingCode || (typeof activeFile.content === "string" ? activeFile.content : "")}
+              language={editorLanguage}
+              theme="vs-dark"
+              options={{
+                renderSideBySide: true,
+                fontSize: 13,
+                automaticLayout: true,
+                minimap: { enabled: false },
+                readOnly: false,
+              }}
+            />
           )}
 
-          {pendingCode && viewMode === "diff" && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-              <Button size="sm" onClick={applyChanges}>
-                <Check className="h-4 w-4 mr-1" /> Apply
+          {/* Diff action bar */}
+          {viewMode === "diff" && pendingCode && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 bg-slate-800 border border-slate-700 rounded-full p-1.5 shadow-2xl">
+              <Button size="sm" onClick={applyChanges} className="rounded-full h-7 px-4">
+                <Check className="h-3.5 w-3.5 mr-1" /> تطبيق
               </Button>
-              <Button size="sm" variant="secondary" onClick={discardChanges}>
-                <X className="h-4 w-4 mr-1" /> Discard
+              <Button size="sm" variant="ghost" onClick={discardChanges} className="rounded-full h-7 px-4">
+                <X className="h-3.5 w-3.5 mr-1" /> إلغاء
               </Button>
             </div>
           )}
         </div>
       </main>
 
-      {/* Sidebar RIGHT */}
-      <aside className="w-80 border-l border-slate-800 flex flex-col bg-[#0f0f14]">
-        <Tabs
-          value={rightTab}
-          onValueChange={(v) => setRightTab(v as any)}
-          className="flex-1 flex flex-col min-h-0"
-        >
-          <TabsList className="grid grid-cols-3 m-2 h-9 bg-slate-800/50">
-            <TabsTrigger value="info">
-              <Info className="h-4 w-4" />
+      {/* RIGHT SIDEBAR */}
+      <aside className="w-[340px] border-l border-slate-800 flex flex-col bg-[#0f0f14]">
+        <Tabs value={rightTab} onValueChange={v => setRightTab(v as any)} className="flex-1 flex flex-col min-h-0">
+          <TabsList className="grid grid-cols-3 m-2 bg-slate-800/50 h-8">
+            <TabsTrigger value="info" className="text-[11px] h-6">
+              <Info className="h-3 w-3 mr-1" /> معلومات
             </TabsTrigger>
-            <TabsTrigger value="perms">
-              <ShieldAlert className="h-4 w-4" />
+            <TabsTrigger value="perms" className="text-[11px] h-6">
+              <ShieldAlert className="h-3 w-3 mr-1" /> صلاحيات
             </TabsTrigger>
-            <TabsTrigger value="ai">
-              <MessageSquare className="h-4 w-4" />
+            <TabsTrigger value="ai" className="text-[11px] h-6">
+              <MessageSquare className="h-3 w-3 mr-1" /> مساعد
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="info" className="flex-1 overflow-hidden p-3">
-            {apkInfo && (
-              <div className="space-y-4 text-xs">
-                <div className="font-bold text-primary">{apkInfo.packageName}</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="text-slate-400">Version</div>
-                  <div>{apkInfo.versionName}</div>
-                  <div className="text-slate-400">Min SDK</div>
-                  <div>{apkInfo.minSdk}</div>
-                  <div className="text-slate-400">Target SDK</div>
-                  <div>{apkInfo.targetSdk}</div>
+          <TabsContent value="info" className="flex-1 mt-0 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1 p-3">
+              {!apkInfo ? (
+                <div className="text-center py-8 text-slate-500 text-xs space-y-2">
+                  <Info className="h-6 w-6 mx-auto opacity-30" />
+                  <p>حمّل APK لرؤية المعلومات</p>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="space-y-3">
+                  <Card className="bg-slate-800/30 border-slate-800">
+                    <CardHeader className="p-3 pb-2">
+                      <CardTitle className="text-xs flex items-center gap-1">
+                        <Smartphone className="h-3 w-3" /> التطبيق
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0 space-y-2 text-[11px]">
+                      <div className="flex justify-between"><span className="text-slate-400">الحزمة</span><span className="font-mono truncate max-w-[140px]">{apkInfo.packageName}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">الإصدار</span><span>{apkInfo.versionName} ({apkInfo.versionCode})</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Min SDK</span><span>{apkInfo.minSdk}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Target</span><span>{apkInfo.targetSdk}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">DEX</span><span>{apkInfo.dexCount} ملف</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Native</span><span>{apkInfo.hasNativeLibs ? "نعم" : "لا"} {apkInfo.architectures.join(", ")}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">قابل للتعديل</span><span>{apkInfo.debuggable ? "Debuggable" : "مُنتج"}</span></div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-slate-800/30 border-slate-800">
+                    <CardHeader className="p-3 pb-2">
+                      <CardTitle className="text-xs">التصنيفات - Categories</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0 space-y-1.5">
+                      {categoryStats.map(s => (
+                        <div key={s.category} className="flex items-center justify-between text-[11px]">
+                          <span className="flex items-center gap-1.5">{CATEGORY_META[s.category].icon} {CATEGORY_META[s.category].labelAr}</span>
+                          <span className="text-slate-400">{s.count} • {formatBytes(s.totalSize)}</span>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-slate-800/30 border-slate-800">
+                    <CardHeader className="p-3 pb-2">
+                      <CardTitle className="text-xs">المكونات</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0 space-y-3 text-[11px] max-h-[200px] overflow-auto">
+                      <div>
+                        <div className="font-bold mb-1">Activities ({apkInfo.activities.length})</div>
+                        <div className="space-y-0.5 text-slate-400">
+                          {apkInfo.activities.slice(0, 5).map(a => (
+                            <div key={a.name} className="truncate">• {a.name}</div>
+                          ))}
+                          {apkInfo.activities.length > 5 && <div className="text-[10px]">+ {apkInfo.activities.length - 5} المزيد</div>}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {activeFile && (
+                    <Card className="bg-primary/5 border-primary/20">
+                      <CardHeader className="p-3 pb-2">
+                        <CardTitle className="text-xs">الملف الحالي</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-3 pt-0 text-[11px] space-y-1">
+                        <div className="truncate font-mono">{activeFile.path}</div>
+                        <div className="flex gap-2">
+                          <Badge variant="outline" className="text-[10px]">{formatBytes(activeFile.size)}</Badge>
+                          <Badge variant="outline" className="text-[10px]">{activeFile.category}</Badge>
+                        </div>
+                        <div className="text-slate-400">{activeFile.editable ? "قابل للتعديل" : "قراءة فقط - Binary"}</div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
           </TabsContent>
 
-          <TabsContent value="ai" className="flex-1 flex flex-col overflow-hidden">
-            <div className="px-3 pt-2 flex items-center justify-between gap-2">
-              <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                {PROVIDERS[aiProvider].icon} {PROVIDERS[aiProvider].label}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-[11px] gap-1"
-                onClick={runFullAnalysis}
-                disabled={isAnalyzing || !bridgeSession.current}
-              >
-                <Sparkles className="h-3 w-3" /> تحليل شامل
-              </Button>
+          <TabsContent value="perms" className="flex-1 mt-0 overflow-hidden flex flex-col">
+            <div className="p-3 border-b border-slate-800 space-y-2">
+              <div className="flex gap-2">
+                <Input id="new-perm" placeholder="android.permission.CAMERA" className="h-8 text-xs bg-slate-900 border-slate-700" />
+                <Button
+                  size="sm"
+                  className="h-8"
+                  onClick={() => {
+                    const el = document.getElementById("new-perm") as HTMLInputElement;
+                    if (el?.value) {
+                      handleAddPermission(el.value);
+                      el.value = "";
+                    }
+                  }}
+                >
+                  إضافة
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {["android.permission.INTERNET", "android.permission.CAMERA", "android.permission.ACCESS_FINE_LOCATION", "android.permission.READ_CONTACTS"].map(p => (
+                  <Badge key={p} variant="outline" className="text-[9px] cursor-pointer hover:bg-slate-800" onClick={() => handleAddPermission(p)}>
+                    + {p.split(".").pop()}
+                  </Badge>
+                ))}
+              </div>
             </div>
-            <ScrollArea className="flex-1 p-3">
-              <div className="space-y-3">
-                {chatMessages.map((m, i) => (
-                  <div
-                    key={i}
-                    className={`p-2 rounded text-xs ${m.role === "user" ? "bg-primary/20 ml-4" : "bg-slate-800 mr-4"}`}
-                  >
-                    <div className="font-bold opacity-50 mb-1">
-                      {m.role === "user" ? "أنت" : "AI"}
+            <ScrollArea className="flex-1 p-2">
+              {!apkInfo ? (
+                <div className="text-center py-8 text-xs text-slate-500">حمّل APK لعرض الصلاحيات</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {apkInfo.permissions.length === 0 && <div className="text-xs text-slate-500 text-center py-4">لا توجد صلاحيات</div>}
+                  {apkInfo.permissions.map(perm => (
+                    <div key={perm.name} className={`p-2.5 rounded-lg border flex items-start justify-between gap-2 ${perm.isDangerous ? "bg-red-500/5 border-red-500/20" : "bg-slate-800/30 border-slate-800"}`}>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-mono truncate flex items-center gap-1">
+                          {perm.isDangerous && <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />}
+                          {perm.name}
+                        </div>
+                        {perm.isDangerous && <div className="text-[10px] text-amber-400/80 mt-0.5">صلاحية خطرة - Dangerous</div>}
+                      </div>
+                      <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => handleRemovePermission(perm.name)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
-                    <div className="whitespace-pre-wrap">{m.content}</div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+            <div className="p-2 border-t border-slate-800 bg-slate-900/30">
+              <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                <ShieldCheck className="h-3 w-3" /> {apkInfo?.permissions.filter(p => p.isDangerous).length || 0} خطرة من أصل {apkInfo?.permissions.length || 0}
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="ai" className="flex-1 mt-0 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1 p-3 bg-[#0a0a0f]">
+              <div className="space-y-3">
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[90%] rounded-2xl px-3 py-2 text-[12px] leading-relaxed whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-white rounded-br-sm" : "bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm"}`}>
+                      {msg.content}
+                      {msg.role === "ai" && pendingCode && i === chatMessages.length - 1 && (
+                        <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-700">
+                          <Button size="sm" onClick={applyChanges} className="h-6 text-[10px] rounded-full">
+                            <Check className="h-3 w-3 mr-1" /> تطبيق
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={discardChanges} className="h-6 text-[10px] rounded-full">
+                            <X className="h-3 w-3 mr-1" /> إلغاء
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
-                {isAnalyzing && <div className="text-xs animate-pulse">جارٍ التفكير...</div>}
+                {isAnalyzing && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl rounded-bl-sm px-3 py-2 text-xs flex items-center gap-2">
+                      <Loader2 className="h-3 w-3 animate-spin" /> جاري التفكير...
+                    </div>
+                  </div>
+                )}
               </div>
             </ScrollArea>
-            <form onSubmit={sendChatMessage} className="p-3 border-t border-slate-800 flex gap-2">
-              <Input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="اسأل الذكاء الاصطناعي..."
-                className="h-9 text-xs"
-              />
+
+            <form onSubmit={sendChatMessage} className="p-2 border-t border-slate-800 bg-[#0f0f14] flex gap-2">
+              <Input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="اسأل عن الملف أو اطلب تعديل... / Ask AI" className="h-9 bg-slate-900 border-slate-700 text-xs flex-1" />
               <Button type="submit" size="icon" className="h-9 w-9 shrink-0">
                 <Send className="h-4 w-4" />
               </Button>
             </form>
+
+            <div className="p-2 border-t border-slate-800 grid grid-cols-2 gap-1.5">
+              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("اشرح لي هذا الملف")}>
+                اشرح الملف
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("كيف أعدّل هذا الملف لإضافة ميزة؟")}>
+                اقترح تحسين
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("ابحث عن مشاكل أمنية في هذا الكود")}>
+                فحص أمني
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setChatInput("جمّل هذا الكود")}>
+                جمّل الكود
+              </Button>
+            </div>
           </TabsContent>
         </Tabs>
       </aside>
 
-      {/* AI Settings */}
+      {/* Settings Dialog */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="max-w-xl bg-slate-900 border-slate-800">
+        <DialogContent className="sm:max-w-[440px] bg-[#0f0f14] border-slate-800 text-slate-100">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-primary" /> إعدادات الذكاء الاصطناعي
-            </DialogTitle>
-            <p className="text-xs text-slate-400">
-              اختر مزوّدًا وأدخل مفتاحه. المفاتيح تُحفظ محليًا في متصفحك فقط ولا تُرسل لأي خادم آخر.
-            </p>
+            <DialogTitle className="flex items-center gap-2"><Key className="h-4 w-4" /> إعدادات الذكاء الاصطناعي</DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs">اختر المزود وأدخل المفتاح لاستخدام المساعد الذكي</DialogDescription>
           </DialogHeader>
-
-          <ScrollArea className="max-h-[55vh] pr-2 mt-2">
-            <div className="space-y-4">
-              {/* Current provider */}
-              <div className="space-y-2">
-                <Label>المزوّد الحالي</Label>
-                <Select
-                  value={aiProvider}
-                  onValueChange={(v: AIProvider) => {
-                    setAiProvider(v);
-                    setTestResult(null);
-                  }}
-                >
-                  <SelectTrigger className="bg-slate-800 border-slate-700">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    {Object.values(PROVIDERS).map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.icon} {p.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* API key for current provider (demo needs none) */}
-              {aiProvider !== "demo" && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>API Key — {PROVIDERS[aiProvider].label}</Label>
-                    <a
-                      href={PROVIDERS[aiProvider].link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-primary hover:underline inline-flex items-center gap-1"
-                    >
-                      احصل على مفتاح <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                  <Input
-                    type="password"
-                    value={aiKeys[aiProvider] || ""}
-                    onChange={(e) =>
-                      setAiKeys((prev) => ({ ...prev, [aiProvider]: e.target.value }))
-                    }
-                    placeholder="sk-..."
-                    className="bg-slate-800 border-slate-700"
-                  />
-                  <div className="text-[11px] text-slate-500">
-                    {PROVIDERS[aiProvider].freeQuota}
-                  </div>
-                </div>
-              )}
-
-              {/* Test connection */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={async () => {
-                    setTesting(true);
-                    setTestResult(null);
-                    const result = await testAIConnection(resolveAISettings());
-                    setTestResult(result);
-                    setTesting(false);
-                  }}
-                  disabled={testing}
-                >
-                  {testing ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Zap className="h-3 w-3" />
-                  )}
-                  اختبار الاتصال
-                </Button>
-                {testResult && (
-                  <span
-                    className={`text-[11px] ${testResult.ok ? "text-emerald-400" : "text-rose-400"}`}
-                  >
-                    {testResult.ok
-                      ? `✅ متصل (${testResult.latencyMs}ms)`
-                      : `❌ ${testResult.message.slice(0, 80)}`}
-                  </span>
-                )}
-              </div>
-
-              {/* Free providers */}
-              <div>
-                <div className="text-[11px] font-bold text-emerald-400 mb-2">🟢 مزوّدات مجانية</div>
-                <div className="space-y-1.5">
-                  {providersByTier().free.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        setAiProvider(p.id);
-                        setTestResult(null);
-                      }}
-                      className={`w-full text-left p-2.5 rounded-lg border flex items-center justify-between gap-2 transition-colors ${aiProvider === p.id ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-base">{p.icon}</span>
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold truncate">{p.label}</div>
-                          <div className="text-[10px] text-slate-500 truncate">{p.freeQuota}</div>
-                        </div>
-                      </div>
-                      {aiKeys[p.id] && (
-                        <span className="text-emerald-400 text-[10px] shrink-0">مفتاح ✓</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Paid providers */}
-              <div>
-                <div className="text-[11px] font-bold text-amber-400 mb-2">
-                  🟡 مزوّدات مدفوعة / منخفضة التكلفة
-                </div>
-                <div className="space-y-1.5">
-                  {providersByTier().paid.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        setAiProvider(p.id);
-                        setTestResult(null);
-                      }}
-                      className={`w-full text-left p-2.5 rounded-lg border flex items-center justify-between gap-2 transition-colors ${aiProvider === p.id ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-base">{p.icon}</span>
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold truncate">{p.label}</div>
-                          <div className="text-[10px] text-slate-500 truncate">{p.freeQuota}</div>
-                        </div>
-                      </div>
-                      {aiKeys[p.id] && (
-                        <span className="text-emerald-400 text-[10px] shrink-0">مفتاح ✓</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Demo */}
-              <button
-                onClick={() => {
-                  setAiProvider("demo");
-                  setTestResult(null);
-                }}
-                className={`w-full text-left p-2.5 rounded-lg border flex items-center gap-2 ${aiProvider === "demo" ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
-              >
-                <span className="text-base">🎮</span>
-                <div>
-                  <div className="text-xs font-semibold">وضع Demo (بدون مفتاح)</div>
-                  <div className="text-[10px] text-slate-500">
-                    تحليل محلي سريع دون إرسال بياناتك لأي جهة
-                  </div>
-                </div>
-              </button>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label className="text-xs">المزود Provider</Label>
+              <Select value={aiSettings.provider} onValueChange={(v: AIProvider) => setAiSettings({ ...aiSettings, provider: v })}>
+                <SelectTrigger className="bg-slate-900 border-slate-700"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-slate-900 border-slate-700 text-slate-100">
+                  <SelectItem value="gemini">Google Gemini (مجاني)</SelectItem>
+                  <SelectItem value="groq">Groq (سريع)</SelectItem>
+                  <SelectItem value="siliconflow">SiliconFlow (Qwen)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          </ScrollArea>
-
+            <div className="grid gap-2">
+              <Label className="text-xs flex justify-between">
+                <span>API Key</span>
+                <a href={PROVIDER_LINKS[aiSettings.provider]} target="_blank" className="text-primary text-[10px] hover:underline">احصل على المفتاح</a>
+              </Label>
+              <Input type="password" placeholder={`${aiSettings.provider} api key`} value={aiSettings.apiKey} onChange={e => setAiSettings({ ...aiSettings, apiKey: e.target.value })} className="bg-slate-900 border-slate-700" />
+            </div>
+            <Card className="bg-primary/5 border-primary/20">
+              <CardContent className="p-3 text-[11px] text-slate-400">المفتاح يُخزن محلياً فقط في المتصفح. لا يتم إرساله لخوادمنا.</CardContent>
+            </Card>
+          </div>
           <DialogFooter>
-            <Button
-              onClick={() => {
-                localStorage.setItem(
-                  "APPFORGE_AI_SETTINGS",
-                  JSON.stringify({ provider: aiProvider, keys: aiKeys }),
-                );
-                setShowSettings(false);
-                toast.success("تم حفظ الإعدادات");
-              }}
-            >
-              حفظ
-            </Button>
+            <Button onClick={() => { localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify(aiSettings)); setShowSettings(false); toast.success("تم الحفظ"); }}>حفظ</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Mods Toolbox */}
-      <Dialog open={showMods} onOpenChange={setShowMods}>
-        <DialogContent className="max-w-2xl bg-slate-900 border-slate-800">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Wand2 className="h-5 w-5 text-primary" />
-              قوالب التعديل الجاهزة
-            </DialogTitle>
-            <p className="text-xs text-slate-400">
-              يكتشف المواضع القابلة للتعديل في Smali/المانيفست ويطبّق التعديل تلقائيًا. احتفظ بنسخة
-              احتياطية واختبر التطبيق بعد كل تعديل.
-            </p>
-          </DialogHeader>
-          <ScrollArea className="max-h-[60vh] pr-2 mt-2">
-            <div className="space-y-3">
-              {mods.length === 0 && (
-                <div className="text-xs text-slate-400">
-                  لا توجد قوالب محمّلة. تأكد أن الجسر المحلي متصل.
-                </div>
-              )}
-              {mods.map((mod) => {
-                const st: ModEntry = modState[mod.id] ?? {};
-                return (
-                  <div
-                    key={mod.id}
-                    className="p-3 rounded-lg border border-slate-700 bg-slate-800/40"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">{mod.icon}</span>
-                          <span className="font-bold text-sm">{mod.nameAr}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                          {mod.descriptionAr}
-                        </p>
-                      </div>
-                      <div className="flex flex-col gap-1.5 shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-[11px] gap-1"
-                          onClick={() => runDetectMod(mod.id)}
-                          disabled={st.busy}
-                        >
-                          {st.busy ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Search className="h-3 w-3" />
-                          )}
-                          اكتشاف
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="h-7 text-[11px] gap-1"
-                          onClick={() => runApplyMod(mod.id)}
-                          disabled={st.busy}
-                        >
-                          <Check className="h-3 w-3" /> تطبيق
-                        </Button>
-                      </div>
-                    </div>
-
-                    {st.error && <div className="text-[11px] text-rose-400 mt-2">{st.error}</div>}
-
-                    {st.detected && st.detected.length > 0 && (
-                      <div className="mt-2 text-[11px]">
-                        <div className="text-emerald-400 mb-1">
-                          تم العثور على {st.detected.length} موضع:
-                        </div>
-                        <div className="space-y-1 max-h-32 overflow-y-auto">
-                          {st.detected.slice(0, 50).map((mt, i) => (
-                            <div key={i} className="truncate text-slate-400">
-                              <span className="text-slate-600">{mt.path}</span>
-                              {mt.method ? ` — ${mt.method}` : ` — ${mt.snippet}`}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {st.changed && st.changed.length > 0 && (
-                      <div className="mt-2 text-[11px] text-emerald-400">
-                        تم تعديل {st.changed.length} ملف:
-                        <div className="space-y-1 max-h-32 overflow-y-auto mt-1">
-                          {st.changed.map((p, i) => (
-                            <div key={i} className="truncate text-slate-300">
-                              {p}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </ScrollArea>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowMods(false)}
-              className="border-slate-700 hover:bg-slate-800"
-            >
-              إغلاق
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Help / Onboarding */}
-      <Dialog open={showHelp} onOpenChange={setShowHelp}>
-        <DialogContent className="max-w-xl bg-slate-900 border-slate-800">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <HelpCircle className="h-5 w-5 text-primary" /> كيف تستخدم APP-FORGE؟
-            </DialogTitle>
-          </DialogHeader>
-          <ScrollArea className="max-h-[60vh] pr-2 mt-2">
-            <div className="space-y-3 text-xs leading-relaxed">
-              {[
-                {
-                  icon: "🔌",
-                  title: "1) جهّز الجسر المحلي",
-                  body: "زر «Setup» يتحقق من الأدوات (Java/apktool/apksigner/zipalign) ويثبّتها بنقرة. عندما يتحول المؤشر العلوي إلى «Bridge» أخضر، فأنت جاهز للتعديل الحقيقي.",
-                },
-                {
-                  icon: "📦",
-                  title: "2) ارفع ملف APK",
-                  body: "اسحب الملف أو اضغط لرفعه. مع الجسر المتصل يُفكّ التطبيق إلى Smali ومانيفست وموارد حقيقية (وليس مجرد ZIP).",
-                },
-                {
-                  icon: "📂",
-                  title: "3) تصفّح وعدّل",
-                  body: "العمود الأيسر يعرض الملفات مصنّفة. اضغط أي ملف نصي لتحريره في المحرر الأوسط، وستُحفظ تعديلاتك تلقائيًا.",
-                },
-                {
-                  icon: "🪄",
-                  title: "4) استخدم قوالب التعديل",
-                  body: "زر «Mods» يفتح قوالب جاهزة (قطع التحديثات، تفعيل الشراء، إزالة الإعلانات، إزالة تحقق الجذر/التوقيع). لكل قالب «اكتشاف» و«تطبيق».",
-                },
-                {
-                  icon: "🤖",
-                  title: "5) استعن بالذكاء الاصطناعي",
-                  body: "العمود الأيمن فيه محادثة AI. اضغط «تحليل شامل» لفحص كل الملفات، أو اطلب تعديل كود مباشرة وسيعرض الفرق قبل التطبيق. من «AI Settings» اختر مزوّدًا مجانيًا أو مدفوعًا.",
-                },
-                {
-                  icon: "🔨",
-                  title: "6) ابنِ ووقّع",
-                  body: "زر «Build» يعيد البناء والمحاذاة والتوقيع وينزّل APK جاهزًا للتثبيت. بدون الجسر، سيكون الناتج غير موقّع ولن يثبَّت.",
-                },
-              ].map((s, i) => (
-                <div key={i} className="p-3 rounded-lg border border-slate-700 bg-slate-800/40">
-                  <div className="font-bold mb-1 flex items-center gap-2">
-                    <span>{s.icon}</span>
-                    {s.title}
-                  </div>
-                  <div className="text-slate-400">{s.body}</div>
-                </div>
-              ))}
-
-              <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-amber-300 text-[11px]">
-                ⚠️ <b>تنبيه:</b> تعديل تطبيقات الآخرين (إزالة الشراء/الإعلانات) قد يخالف شروط
-                الاستخدام وحقوق الملكية. استخدم الأداة للأغراض التعليمية وللتطبيقات التي تملك حق
-                تعديلها، واحتفظ دائمًا بنسخة احتياطية واختبر بعد كل تعديل.
-              </div>
-            </div>
-          </ScrollArea>
-          <DialogFooter>
-            <Button onClick={() => setShowHelp(false)}>فهمت</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {isLoading && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 grid place-items-center">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col items-center gap-3 min-w-[280px]">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="font-bold">جاري التحليل...</p>
+            <p className="text-xs text-slate-400">قد يستغرق بضع ثوانٍ للملفات الكبيرة</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-export default AppForgeEditor;

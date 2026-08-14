@@ -1,16 +1,17 @@
 import * as React from "react";
-import {
-  Terminal,
-  CheckCircle2,
-  ExternalLink,
-  Copy,
-  Check,
+import { 
+  Terminal, 
+  Settings, 
+  CheckCircle2, 
+  ExternalLink, 
+  Copy, 
+  Check, 
+  Cpu, 
+  Package, 
   ShieldCheck,
   Zap,
   Play,
-  Circle,
-  XCircle,
-  Loader2,
+  RotateCcw
 } from "lucide-react";
 import {
   Dialog,
@@ -25,197 +26,181 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
-type ToolStatus = "checking" | "online" | "offline";
-
-interface ToolInfo {
-  id: string;
-  label: string;
-  exists: boolean;
+interface SetupStepProps {
+  title: string;
+  description: string;
+  command?: string;
+  link?: string;
+  isCompleted: boolean;
+  onToggle: () => void;
 }
 
-interface InstallResult {
-  cmd: string;
-  ok: boolean;
-  error?: string;
-}
+const SetupStep = ({ title, description, command, link, isCompleted, onToggle }: SetupStepProps) => {
+  const [copied, setCopied] = React.useState(false);
+  const [isVerifying, setIsVerifying] = React.useState(false);
 
-const TOOL_META: Record<
-  string,
-  { title: string; command: string; link?: string; linkLabel?: string; manual: string }
-> = {
-  java: {
-    title: "Java (JDK 17+)",
-    command: "java -version",
-    link: "https://adoptium.net/temurin/releases/?version=17",
-    linkLabel: "تحميل Temurin JDK 17",
-    manual: "winget install --id EclipseAdoptium.Temurin.17.JDK -e",
-  },
-  apktool: {
-    title: "Apktool",
-    command: "apktool --version",
-    link: "https://ibotpeaches.github.io/Apktool/install/",
-    linkLabel: "تحميل Apktool",
-    manual: "winget install --id apktool.apktool -e  (أو ضع apktool.jar في PATH)",
-  },
-  apksigner: {
-    title: "apksigner (Android Build Tools)",
-    command: "apksigner --version",
-    link: "https://developer.android.com/tools/releases/build-tools",
-    linkLabel: "تحميل Build Tools",
-    manual: 'ثبّت Android Studio ثم: sdkmanager "build-tools;34.0.0" "platform-tools"',
-  },
-  zipalign: {
-    title: "zipalign (Android Build Tools)",
-    command: "zipalign -h",
-    link: "https://developer.android.com/tools/releases/build-tools",
-    linkLabel: "تحميل Build Tools",
-    manual: 'يأتي ضمن build-tools: sdkmanager "build-tools;34.0.0"',
-  },
-};
-
-function StatusIcon({ status }: { status: ToolStatus }) {
-  if (status === "online") return <CheckCircle2 className="h-4 w-4 text-emerald-400" />;
-  if (status === "offline") return <XCircle className="h-4 w-4 text-rose-500" />;
-  return <Circle className="h-4 w-4 text-slate-500" />;
-}
-
-export function SetupGuide({
-  open,
-  onOpenChange,
-  baseUrl,
-  mode,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  baseUrl?: string;
-  mode?: "local" | "cloud";
-}) {
-  const [serverStatus, setServerStatus] = React.useState<ToolStatus>("checking");
-  const [tools, setTools] = React.useState<Record<string, ToolInfo>>({});
-  const [installing, setInstalling] = React.useState(false);
-  const [installResults, setInstallResults] = React.useState<InstallResult[]>([]);
-  const [copied, setCopied] = React.useState<string | null>(null);
-
-  const copyCommand = async (cmd: string) => {
-    try {
-      await navigator.clipboard.writeText(cmd);
-      setCopied(cmd);
-      toast.success("تم نسخ الأمر");
-      setTimeout(() => setCopied(null), 2000);
-    } catch {
-      toast.error("تعذّر النسخ");
+  const copyCommand = () => {
+    if (command) {
+      navigator.clipboard.writeText(command);
+      setCopied(true);
+      toast.success("Command copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  const effectiveBase = baseUrl || "http://localhost:3000";
+  const handleVerify = async () => {
+    setIsVerifying(true);
+    // Ping local backend to verify tool existence
+    try {
+      let toolName = title.toLowerCase();
+      if (title.includes(':')) {
+        const splitTitle = title.split(':');
+        const candidate = splitTitle[1];
+        if (candidate) {
+          const candidateParts = candidate.trim().split(' ');
+          const firstPart = candidateParts[0];
+          if (firstPart) {
+            toolName = firstPart.toLowerCase();
+          }
+
+        }
+      }
+
+
+
+
+
+
+
+      const response = await fetch(`http://localhost:3000/api/verify-tool?tool=${toolName}`);
+
+      const data = await response.json();
+      
+      if (data.exists) {
+        if (!isCompleted) onToggle();
+        toast.success(`${title} verified successfully!`);
+      } else {
+        toast.error(`${title} not found in PATH.`);
+      }
+    } catch (err) {
+      toast.error("Local server must be running to auto-verify tools.");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+
+  return (
+    <div className={`p-4 rounded-lg border transition-all ${isCompleted ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-800/50 border-slate-700'}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <h4 className={`text-sm font-semibold flex items-center gap-2 ${isCompleted ? 'text-emerald-400' : 'text-slate-200'}`}>
+            {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : <Package className="h-4 w-4" />}
+            {title}
+          </h4>
+          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+
+            {description}
+          </p>
+          
+          {command && (
+            <div className="mt-3 relative group">
+              <code className="block p-3 rounded bg-slate-900 border border-slate-700 text-xs font-mono text-primary break-all">
+                {command}
+              </code>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="absolute top-1 right-1 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={copyCommand}
+              >
+                {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+              </Button>
+            </div>
+          )}
+
+          {link && (
+            <a 
+              href={link} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-xs text-primary hover:underline flex items-center gap-1 mt-2 inline-flex"
+            >
+              Download Page <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+        
+        <div className="flex flex-col gap-2">
+          <Button 
+            variant={isCompleted ? "default" : "outline"} 
+            size="sm" 
+            onClick={onToggle}
+            className={isCompleted ? "bg-emerald-600 hover:bg-emerald-700 w-full" : "w-full"}
+          >
+            {isCompleted ? "Completed" : "Mark Done"}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleVerify}
+            disabled={isVerifying}
+            className="text-[10px] h-7 gap-1"
+          >
+            {isVerifying ? <RotateCcw className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            Auto-Verify
+          </Button>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
+export function SetupGuide({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) {
+  const [serverStatus, setServerStatus] = React.useState<'checking' | 'online' | 'offline'>('checking');
+  const [completedSteps, setCompletedSteps] = React.useState<Record<string, boolean>>({});
 
   const checkHealth = React.useCallback(async () => {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
-      const response = await fetch(`${effectiveBase}/api/health`, { signal: controller.signal });
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const response = await fetch('http://localhost:3000/api/health', { signal: controller.signal });
       clearTimeout(timeoutId);
-      setServerStatus(response.ok ? "online" : "offline");
-
-      if (response.ok) {
-        const toolsRes = await fetch(`${effectiveBase}/api/tools`);
-        if (toolsRes.ok) {
-          const data = await toolsRes.json();
-          setTools(data);
-        }
-      }
-    } catch {
-      setServerStatus("offline");
+      if (response.ok) setServerStatus('online');
+      else setServerStatus('offline');
+    } catch (err) {
+      setServerStatus('offline');
     }
-  }, [effectiveBase]);
+  }, []);
 
   React.useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | undefined;
+    let interval: any;
     if (open) {
       checkHealth();
       interval = setInterval(checkHealth, 5000);
+      
+      const saved = localStorage.getItem('APPFORGE_SETUP_PROGRESS');
+      if (saved) {
+        try {
+          setCompletedSteps(JSON.parse(saved));
+        } catch (e) {
+          console.error("Failed to parse setup progress", e);
+        }
+      }
     }
     return () => {
       if (interval) clearInterval(interval);
     };
   }, [open, checkHealth]);
 
-  const runAutoInstall = async () => {
-    setInstalling(true);
-    setInstallResults([]);
-    try {
-      const res = await fetch(`${effectiveBase}/api/install-tools`, { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error || "فشل التثبيت التلقائي");
-        return;
-      }
-      setInstallResults(data.results || []);
-      if (data.unsupported) {
-        toast.info(data.message);
-      } else {
-        const okCount = (data.results || []).filter((r: InstallResult) => r.ok).length;
-        toast.success(`تم تشغيل ${okCount} من ${(data.results || []).length} أمر تثبيت`);
-      }
-      setTimeout(checkHealth, 1500);
-    } catch {
-      toast.error("خادم الجسر المحلي غير متصل. شغّل: npm run bridge");
-    } finally {
-      setInstalling(false);
-    }
+
+  const toggleStep = (id: string) => {
+    const next = { ...completedSteps, [id]: !completedSteps[id] };
+    setCompletedSteps(next);
+    localStorage.setItem('APPFORGE_SETUP_PROGRESS', JSON.stringify(next));
   };
 
-  const downloadPowerShell = async () => {
-    try {
-      const res = await fetch(`${effectiveBase}/api/install.ps1`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const content = await res.text();
-      const blob = new Blob([content], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "appforge-setup.ps1";
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("تم تنزيل سكربت PowerShell — افتحه بنقرة واحدة لفحص/تثبيت الأدوات");
-    } catch {
-      // Fallback: build the script locally so the button always works.
-      const script = [
-        "# APP-FORGE — verify + install (one click)",
-        "$ErrorActionPreference='Continue'",
-        "function T($n,$a){ try { & $n @a *> $null; return $LASTEXITCODE -eq 0 } catch { return $false } }",
-        "Write-Host '=== APP-FORGE tool checker ===' -ForegroundColor Cyan",
-        "$j=T 'java' @('-version')",
-        "if($j){Write-Host '[OK] Java' -ForegroundColor Green}else{Write-Host '[MISS] Java - installing...' -ForegroundColor Yellow; winget install --id EclipseAdoptium.Temurin.17.JDK -e --accept-source-agreements --accept-package-agreements}",
-        "$a=T 'apktool' @('--version')",
-        "if($a){Write-Host '[OK] Apktool' -ForegroundColor Green}else{Write-Host '[MISS] Apktool - installing...' -ForegroundColor Yellow; winget install --id apktool.apktool -e --accept-source-agreements --accept-package-agreements}",
-        "$s=T 'apksigner' @('--version'); $z=T 'zipalign' @('-h')",
-        "if($s -and $z){Write-Host '[OK] apksigner + zipalign' -ForegroundColor Green}else{Write-Host '[MISS] build-tools - install Android Studio + sdkmanager \"build-tools;34.0.0\" \"platform-tools\"' -ForegroundColor Yellow}",
-        "Write-Host 'Next: npm run bridge' -ForegroundColor Cyan",
-      ].join("\r\n");
-      const blob = new Blob([script], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "appforge-setup.ps1";
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("تم تنزيل سكربت PowerShell (مولّد محليًا)");
-    }
-  };
-
-  const verifyNow = async () => {
-    await checkHealth();
-    toast.success(
-      serverStatus === "online" ? "تم التحقق — الأدوات جاهزة" : "غير متصل — شغّل الجسر أولًا",
-    );
-  };
-
-  const allToolsReady =
-    tools["java"]?.exists &&
-    tools["apktool"]?.exists &&
-    tools["apksigner"]?.exists &&
-    tools["zipalign"]?.exists;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -224,228 +209,95 @@ export function SetupGuide({
           <div className="flex items-center justify-between mb-2">
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
               <Terminal className="h-5 w-5 text-primary" />
-              إعداد بيئة التعديل
+              Environment Setup Guide
             </DialogTitle>
-            <Badge
-              variant={serverStatus === "online" ? "default" : "destructive"}
-              className={`flex items-center gap-1.5 px-3 py-1 ${serverStatus === "online" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : ""}`}
-            >
-              <div
-                className={`h-2 w-2 rounded-full ${serverStatus === "online" ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`}
-              />
-              {serverStatus === "online"
-                ? `${mode === "cloud" ? "الجسر السحابي متصل" : "الجسر المحلي متصل"}`
-                : mode === "cloud"
-                  ? "خادم السحابة غير متصل"
-                  : "الجسر غير متصل — شغّل npm run bridge"}
+            <Badge variant={serverStatus === 'online' ? 'default' : 'destructive'} className={`flex items-center gap-1.5 px-3 py-1 ${serverStatus === 'online' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : ''}`}>
+              <div className={`h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+              {serverStatus === 'online' ? 'Local Server Connected' : 'Server Offline (Port 3000)'}
             </Badge>
           </div>
           <DialogDescription className="text-slate-400">
-            يحتاج التعديل الفعلي (فكّ + بناء + توقيع) إلى أدوات أندرويد مثبّتة على جهازك. تحقق منها
-            هنا وثبّتها بنقرة واحدة.
+            Follow these steps to configure your Windows 11 machine for full APK decompilation and rebuilding capabilities.
           </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] pr-4 mt-4">
-          <div className="space-y-4 pb-4">
-            {/* Real tool status */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  حالة الأدوات (تُفحص تلقائيًا)
-                </h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-[11px] gap-1 text-slate-400"
-                  onClick={verifyNow}
-                >
-                  <Zap className="h-3 w-3" /> تحقق الآن
-                </Button>
-              </div>
-              {Object.keys(TOOL_META).length > 0 && (
-                <div className="space-y-1.5">
-                  {Object.entries(TOOL_META).map(([id, meta]) => {
-                    const info = tools[id];
-                    const status: ToolStatus = info
-                      ? info.exists
-                        ? "online"
-                        : "offline"
-                      : "checking";
-                    return (
-                      <div
-                        key={id}
-                        className={`p-3 rounded-lg border flex items-center justify-between gap-3 ${status === "online" ? "bg-emerald-500/5 border-emerald-500/20" : status === "offline" ? "bg-rose-500/5 border-rose-500/20" : "bg-slate-800/50 border-slate-700"}`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <StatusIcon status={status} />
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold">{meta.title}</div>
-                            <div className="text-[11px] text-slate-400 truncate">{meta.manual}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <code className="text-[10px] text-slate-500 hidden sm:block">
-                            {meta.command}
-                          </code>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => copyCommand(meta.manual)}
-                            title="نسخ أمر التثبيت"
-                          >
-                            {copied === meta.manual ? (
-                              <Check className="h-3 w-3 text-emerald-400" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
-                          </Button>
-                          {meta.link && (
-                            <a
-                              href={meta.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary hover:underline inline-flex items-center gap-0.5 text-[11px]"
-                            >
-                              تحميل <ExternalLink className="h-3 w-3" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+          <div className="space-y-6 pb-4">
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                Required Dependencies
+              </h3>
+              
+              <SetupStep 
+                title="Step 1: Install Java (JDK 17+)"
+                description="Java Development Kit is required for Apktool and Apksigner to run. Version 17 is recommended for maximum compatibility."
+                link="https://www.oracle.com/java/technologies/downloads/#java17"
+                isCompleted={!!completedSteps['java']}
+                onToggle={() => toggleStep('java')}
+              />
 
-              {allToolsReady && (
-                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4" /> جميع الأدوات جاهزة — يمكنك رفع APK والتعديل
-                  والبناء والتوقيع.
-                </div>
-              )}
+              <SetupStep 
+                title="Step 2: Install Apktool"
+                description="The core engine for decompiling APKs to Smali and rebuilding them. Ensure it's in your system PATH."
+                command="apktool --version"
+                isCompleted={!!completedSteps['apktool']}
+                onToggle={() => toggleStep('apktool')}
+              />
+
+              <SetupStep 
+                title="Step 3: Install Android Build Tools"
+                description="Required for 'apksigner' to sign your rebuilt APKs so they can be installed on Android devices. Use winget for fast installation."
+                command="winget install Google.AndroidSDK.BuildTools"
+                isCompleted={!!completedSteps['buildtools']}
+                onToggle={() => toggleStep('buildtools')}
+              />
             </div>
 
-            {/* Auto install */}
             <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
               <h3 className="text-sm font-medium text-primary flex items-center gap-2 mb-2">
                 <Zap className="h-4 w-4" />
-                تثبيت تلقائي
+                Quick Verification
               </h3>
               <p className="text-xs text-slate-400 mb-3">
-                سيحاول الجسر تثبيت JDK 17 و apktool تلقائيًا عبر winget (ويندوز) أو brew (ماك). أداة
-                build-tools (apksigner/zipalign) قد تتطلب تثبيتًا يدويًا عبر Android Studio.
+                Run this command in PowerShell to verify your environment is ready:
               </p>
-              <Button
-                onClick={runAutoInstall}
-                disabled={installing || serverStatus === "offline"}
-                className="gap-2"
-              >
-                {installing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-                تثبيت تلقائي الآن
-              </Button>
-
-              {installResults.length > 0 && (
-                <div className="mt-3 space-y-1.5">
-                  {installResults.map((r, i) => (
-                    <div
-                      key={i}
-                      className={`text-[11px] p-2 rounded border ${r.ok ? "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" : "text-rose-400 border-rose-500/20 bg-rose-500/5"}`}
-                    >
-                      {r.ok ? "✅" : "❌"} {r.cmd}
-                      {r.error && <div className="text-slate-500 mt-0.5">{r.error}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* One-click PowerShell (local only) */}
-            {mode !== "cloud" && (
-              <div className="p-4 rounded-lg bg-violet-500/5 border border-violet-500/30">
-                <h3 className="text-sm font-medium text-violet-300 flex items-center gap-2 mb-2">
-                  <Terminal className="h-4 w-4" />
-                  فحص + تثبيت عبر PowerShell (زر واحد)
-                </h3>
-                <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-                  حمّل سكربت PowerShell جاهزًا يتحقق من كل الأدوات ويُثبّت الناقص تلقائيًا عبر
-                  winget — أو انسخه والصقه في PowerShell.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={downloadPowerShell}
-                    disabled={serverStatus === "offline"}
-                    className="gap-2"
-                  >
-                    <Play className="h-4 w-4" /> تنزيل سكربت PowerShell
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => copyCommand(`irm ${effectiveBase}/api/install.ps1 | iex`)}
-                    className="gap-2 border-slate-700 hover:bg-slate-800"
-                  >
-                    {copied === `irm ${effectiveBase}/api/install.ps1 | iex` ? (
-                      <Check className="h-4 w-4 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                    نسخ أمر التشغيل
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Verification */}
-            <div className="p-4 rounded-lg bg-slate-800/50 border border-slate-700">
-              <h3 className="text-sm font-medium text-slate-200 flex items-center gap-2 mb-2">
-                <Terminal className="h-4 w-4 text-primary" />
-                تحقق سريع يدويًا
-              </h3>
-              <p className="text-xs text-slate-400 mb-3">
-                شغّل هذا الأمر في PowerShell للتحقق أن كل شيء جاهز:
-              </p>
-              <div className="relative group">
-                <code className="block p-3 rounded bg-slate-900 border border-slate-700 text-[10px] font-mono text-emerald-400 break-all">
-                  java -version; apktool --version; apksigner --version
-                </code>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-1 right-1 h-7 w-7"
-                  onClick={() =>
-                    copyCommand("java -version; apktool --version; apksigner --version")
-                  }
-                >
-                  {copied === "java -version; apktool --version; apksigner --version" ? (
-                    <Check className="h-3 w-3 text-emerald-400" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                </Button>
-              </div>
+              <code className="block p-3 rounded bg-slate-900 border border-slate-700 text-[10px] font-mono text-emerald-400">
+                java -version; apktool --version; apksigner --version
+              </code>
             </div>
           </div>
         </ScrollArea>
 
         <DialogFooter className="border-t border-slate-800 pt-4 gap-2 flex-col sm:flex-row">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            className="border-slate-700 hover:bg-slate-800"
-          >
-            إغلاق
+          <div className="flex-1 flex gap-2">
+            <Button 
+              variant="outline" 
+              className="text-xs h-8 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
+              onClick={async () => {
+                try {
+                  const res = await fetch('http://localhost:3000/api/install-tools', { method: 'POST' });
+                  if (res.ok) toast.success("Attempting auto-install via Winget...");
+                  else toast.error("Auto-install failed. Please install manually.");
+                } catch (e) {
+                  toast.error("Local server offline.");
+                }
+              }}
+            >
+              <Zap className="h-3 w-3 mr-1" />
+              Try Auto-Install
+            </Button>
+          </div>
+
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-slate-700 hover:bg-slate-800">
+            Close
           </Button>
-          <Button
+          <Button 
             className="bg-primary hover:bg-primary/90"
-            onClick={() => window.open("https://ibotpeaches.github.io/Apktool/", "_blank")}
+            onClick={() => window.open('https://github.com/APKLab/APKLab', '_blank')}
           >
             <ExternalLink className="h-4 w-4 mr-2" />
-            دليل Apktool
+            View APKLab Docs
           </Button>
         </DialogFooter>
       </DialogContent>

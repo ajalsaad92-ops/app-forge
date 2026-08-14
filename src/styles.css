@@ -104,7 +104,7 @@
   --card-foreground: oklch(0.95 0.01 247.858);
   --popover: oklch(0.14 0.02 265.755);
   --popover-foreground: oklch(0.95 0.01 247.858);
-  --primary: oklch(0.66 0.24 285);
+  --primary: oklch(0.65 0.2 260);
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.18 0.02 260);
   --secondary-foreground: oklch(0.95 0.01 247.858);
@@ -116,20 +116,20 @@
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.22 0.015 255.5);
   --input: oklch(0.18 0.015 255.5);
-  --ring: oklch(0.66 0.24 285);
-  --chart-1: oklch(0.66 0.24 285);
-  --chart-2: oklch(0.72 0.19 205);
-  --chart-3: oklch(0.55 0.2 285);
-  --chart-4: oklch(0.72 0.19 320);
-  --chart-5: oklch(0.78 0.2 15);
+  --ring: oklch(0.65 0.2 260);
+  --chart-1: oklch(0.65 0.2 260);
+  --chart-2: oklch(0.6 0.15 180);
+  --chart-3: oklch(0.5 0.1 220);
+  --chart-4: oklch(0.8 0.15 80);
+  --chart-5: oklch(0.7 0.15 60);
   --sidebar: oklch(0.12 0.015 264.695);
   --sidebar-foreground: oklch(0.9 0.01 247.858);
-  --sidebar-primary: oklch(0.66 0.24 285);
+  --sidebar-primary: oklch(0.65 0.2 260);
   --sidebar-primary-foreground: oklch(1 0 0);
   --sidebar-accent: oklch(0.18 0.02 260);
   --sidebar-accent-foreground: oklch(0.95 0.01 247.858);
   --sidebar-border: oklch(0.2 0.015 255.5);
-  --sidebar-ring: oklch(0.66 0.24 285);
+  --sidebar-ring: oklch(0.65 0.2 260);
 }
 
 @layer base {
@@ -160,26 +160,3 @@ a[href*="lovable.app"] {
   top: -9999px !important;
   left: -9999px !important;
 }
-
-/* ============================================================================
-   APP-FORGE brand helpers (Phase 5 redesign)
-   ========================================================================== */
-.brand-gradient-text {
-  background: linear-gradient(135deg, #a78bfa 0%, #60a5fa 50%, #22d3ee 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.brand-gradient-bg {
-  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 55%, #0ea5e9 100%);
-}
-.brand-ring-glow {
-  box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.25), 0 12px 40px -12px rgba(124, 58, 237, 0.45);
-}
-.glass-panel {
-  background: rgba(20, 22, 32, 0.6);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(148, 163, 184, 0.14);
-}
-.scrollbar-none::-webkit-scrollbar { display: none; }
-.scrollbar-none { scrollbar-width: none; }

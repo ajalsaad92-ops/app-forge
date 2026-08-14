@@ -17,16 +17,16 @@ function NotFoundComponent() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">الصفحة غير موجودة</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          الصفحة التي تبحث عنها غير موجودة أو تم نقلها.
+          The page you're looking for doesn't exist or has been moved.
         </p>
         <div className="mt-6">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            العودة للرئيسية
+            Go home
           </Link>
         </div>
       </div>
@@ -45,10 +45,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          تعذّر تحميل الصفحة
+          This page didn't load
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          حدث خطأ ما. يمكنك المحاولة مجددًا أو العودة للرئيسية.
+          Something went wrong on our end. You can try refreshing or head back home.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -58,13 +58,13 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            إعادة المحاولة
+            Try again
           </button>
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            العودة للرئيسية
+            Go home
           </a>
         </div>
       </div>
@@ -77,14 +77,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "APP-FORGE — عدّل ووقّع تطبيقات أندرويد" },
-      { name: "description", content: "أداة لتفكيك تطبيقات APK وتعديلها بقوالب جاهزة وتحليلها بالذكاء الاصطناعي ثم إعادة توقيعها لتثبيتها." },
+      { title: "APP-FORGE - محرر APK الاحترافي | Professional APK Editor" },
+      { name: "description", content: "محرر تطبيقات الأندرويد الاحترافي - يفرز التطبيق حسب الشهادات والإعدادات والموارد والشيفرة. Professional APK editor with automatic categorization, visual manifest editor, certificate viewer, and AI assistant. 100% local processing." },
       { name: "author", content: "APP-FORGE" },
-      { property: "og:title", content: "APP-FORGE — عدّل ووقّع تطبيقات أندرويد" },
-      { property: "og:description", content: "فكّ · عدّل · وقّع · ثبّت — تحليل بالذكاء الاصطناعي وقوالب تعديل جاهزة." },
+      { property: "og:title", content: "APP-FORGE - محرر APK الاحترافي | Professional APK Editor" },
+      { property: "og:description", content: "محرر تطبيقات الأندرويد - فرز تلقائي حسب الشهادات والإعدادات والموارد." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@APPFORGE" },
+      { name: "twitter:site", content: "@AppForge" },
     ],
     links: [
       {

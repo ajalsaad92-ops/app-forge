@@ -224,8 +224,10 @@ function AppForgeEditor() {
           }));
           
           setApkFiles(mappedFiles);
-          // Set internal processor state as well
           apkProcessor.setAllFiles(mappedFiles);
+          
+          setOpenTabs([]); // Reset tabs on new upload
+          setActiveFilePath("");
           
           // Heuristic to find manifest and other info
           const manifestFile = mappedFiles.find(f => f.path === "AndroidManifest.xml");
@@ -249,9 +251,9 @@ function AppForgeEditor() {
       setCertificates(result.certificates);
       setCategoryStats(result.stats);
       setManifestEdit({
-        packageName: result.info.packageName,
-        versionName: result.info.versionName,
-        versionCode: result.info.versionCode,
+        packageName: result.info.packageName || "",
+        versionName: result.info.versionName || "",
+        versionCode: result.info.versionCode || "",
       });
 
       // Open manifest by default

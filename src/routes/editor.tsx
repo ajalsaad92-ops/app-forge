@@ -1121,17 +1121,17 @@ function AppForgeEditor() {
       {/* RIGHT SIDEBAR */}
       <aside className="w-[340px] border-l border-slate-800 flex flex-col bg-[#0f0f14]">
         <Tabs value={rightTab} onValueChange={v => setRightTab(v as any)} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid grid-cols-3 m-2 bg-slate-800/50 h-8">
-            <TabsTrigger value="info" className="text-[11px] h-6">
+          <TabsList className="grid grid-cols-4 m-2 bg-slate-800/50 h-8">
+            <TabsTrigger value="info" className="text-[11px] h-6 px-1">
               <Info className="h-3 w-3 mr-1" /> معلومات
             </TabsTrigger>
-            <TabsTrigger value="perms" className="text-[11px] h-6">
+            <TabsTrigger value="perms" className="text-[11px] h-6 px-1">
               <ShieldAlert className="h-3 w-3 mr-1" /> صلاحيات
             </TabsTrigger>
-            <TabsTrigger value="ai" className="text-[11px] h-6">
+            <TabsTrigger value="ai" className="text-[11px] h-6 px-1">
               <MessageSquare className="h-3 w-3 mr-1" /> مساعد
             </TabsTrigger>
-            <TabsTrigger value="audit" className="text-[11px] h-6">
+            <TabsTrigger value="audit" className="text-[11px] h-6 px-1">
               <ShieldCheck className="h-3 w-3 mr-1" /> فحص
             </TabsTrigger>
           </TabsList>

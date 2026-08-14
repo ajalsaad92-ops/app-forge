@@ -77,6 +77,8 @@ import {
   CATEGORY_META,
   formatBytes,
   getFileLanguage,
+  getCategoryFromPath,
+  isEditableFile,
 } from "@/lib/apk-processor";
 import {
   Dialog,

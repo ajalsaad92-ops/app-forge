@@ -10,6 +10,7 @@ export type APKCategory =
   | 'security' 
   | 'assets' 
   | 'firebase'
+  | 'ui_mod'
   | 'other';
 
 export interface APKFile {
@@ -148,6 +149,13 @@ export const CATEGORY_META: Record<APKCategory, { label: string; labelAr: string
     icon: '🔥', 
     color: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
     description: 'Firebase & Google services'
+  },
+  ui_mod: {
+    label: 'UI & Visuals',
+    labelAr: 'الواجهة والصور',
+    icon: '🖼️',
+    color: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
+    description: 'App icons, images, and visual themes'
   },
   other: { 
     label: 'Other', 
@@ -342,6 +350,11 @@ function getCategoryFromPath(path: string): APKCategory {
   const lower = path.toLowerCase();
   
   if (path === "AndroidManifest.xml" || path === "AndroidManifest.xml:" ) return 'manifest';
+  
+  if (lower.match(/\.(png|jpg|jpeg|webp|gif|ico|svg)$/) || lower.includes('icon') || lower.includes('logo') || lower.includes('splash')) {
+    return 'ui_mod';
+  }
+  
   if (lower.includes('firebase') || lower.includes('google-services') || lower.includes('gms') || lower.includes('measurement')) return 'firebase';
   if (lower.startsWith("meta-inf/")) return 'security';
   if (lower.startsWith("lib/") || lower.endsWith(".so")) return 'native';

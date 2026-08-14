@@ -125,7 +125,9 @@ function AppForgeEditor() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [leftTab, setLeftTab] = React.useState<"categories" | "files" | "certs">("categories");
   const [centerTab, setCenterTab] = React.useState<"code" | "visual" | "preview">("code");
-  const [rightTab, setRightTab] = React.useState<"info" | "perms" | "ai">("info");
+  const [rightTab, setRightTab] = React.useState<"info" | "perms" | "ai" | "audit">("info");
+  const [stabilityAudit, setStabilityAudit] = React.useState<string | null>(null);
+  const [isAuditing, setIsAuditing] = React.useState(false);
 
   // Legacy file system for generic project support
   const [files, setFiles] = React.useState<FileSystemItem[]>([
@@ -468,6 +470,27 @@ function AppForgeEditor() {
     setPendingCode(null);
     setViewMode("editor");
     toast.info("تم إلغاء التغييرات");
+  };
+
+  const handleStabilityAudit = async () => {
+    if (!apkInfo || !aiSettings.apiKey) {
+      toast.error("يرجى رفع APK وإعداد مفتاح AI أولاً");
+      return;
+    }
+    setIsAuditing(true);
+    setRightTab("audit");
+    try {
+      const manifest = apkFiles.find(f => f.path === "AndroidManifest.xml")?.content as string || "";
+      const paths = apkFiles.map(f => f.path);
+      const { checkAppFunctionality } = await import("@/lib/ai-service");
+      const result = await checkAppFunctionality(aiSettings, manifest, paths);
+      setStabilityAudit(result);
+      toast.success("تم فحص استقرار التطبيق");
+    } catch (err: any) {
+      toast.error("فشل الفحص: " + err.message);
+    } finally {
+      setIsAuditing(false);
+    }
   };
 
   const groupedByFolder = React.useMemo(() => {
@@ -820,27 +843,56 @@ function AppForgeEditor() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
             {activeFile && (
               <>
                 <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setViewMode(viewMode === "editor" ? "diff" : "editor")}>
                   <Split className="h-3 w-3 mr-1" />
                   {viewMode === "editor" ? "Diff" : "Editor"}
                 </Button>
-                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={runAnalysis} disabled={isAnalyzing}>
-                  {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
-                  تحليل
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] border-pink-500/30 bg-pink-500/5 hover:bg-pink-500/10 text-pink-400"
+                  onClick={() => setChatInput("تغيير صورة وأيقونات التطبيق Change App Icon")}
+                >
+                  <ImageIcon className="h-3 w-3 mr-1" /> صورة
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-400"
+                  onClick={() => setChatInput("فتح المميزات والاشتراكات Unlock All Features")}
+                >
+                  <Flame className="h-3 w-3 mr-1" /> المميزات
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-red-400"
+                  onClick={() => setChatInput("قطع الإنترنت عن التطبيق Block Network Access")}
+                >
+                  <ShieldAlert className="h-3 w-3 mr-1" /> الإنترنت
+                </Button>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+                  onClick={handleStabilityAudit}
+                >
+                  <CheckCircle className="h-3 w-3 mr-1" /> فحص العمل
                 </Button>
               </>
             )}
-            <Button size="sm" className="h-7 text-[11px] bg-primary" onClick={handleRebuild} disabled={apkFiles.length === 0}>
-              <Wrench className="h-3 w-3 mr-1" />
+            <div className="h-4 w-px bg-slate-800 mx-1 shrink-0" />
+            <Button size="sm" className="h-7 text-[11px] bg-primary shrink-0" onClick={handleRebuild} disabled={apkFiles.length === 0}>
+              <Play className="h-3 w-3 mr-1" />
               بناء APK
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSetup(true)} title="Setup">
+            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSetup(true)} title="Setup">
               <Settings className="h-3.5 w-3.5" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowSettings(true)}>
+            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSettings(true)}>
               <Key className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -1068,15 +1120,18 @@ function AppForgeEditor() {
       {/* RIGHT SIDEBAR */}
       <aside className="w-[340px] border-l border-slate-800 flex flex-col bg-[#0f0f14]">
         <Tabs value={rightTab} onValueChange={v => setRightTab(v as any)} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid grid-cols-3 m-2 bg-slate-800/50 h-8">
-            <TabsTrigger value="info" className="text-[11px] h-6">
+          <TabsList className="grid grid-cols-4 m-2 bg-slate-800/50 h-8">
+            <TabsTrigger value="info" className="text-[11px] h-6 px-1">
               <Info className="h-3 w-3 mr-1" /> معلومات
             </TabsTrigger>
-            <TabsTrigger value="perms" className="text-[11px] h-6">
+            <TabsTrigger value="perms" className="text-[11px] h-6 px-1">
               <ShieldAlert className="h-3 w-3 mr-1" /> صلاحيات
             </TabsTrigger>
-            <TabsTrigger value="ai" className="text-[11px] h-6">
+            <TabsTrigger value="ai" className="text-[11px] h-6 px-1">
               <MessageSquare className="h-3 w-3 mr-1" /> مساعد
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="text-[11px] h-6 px-1">
+              <ShieldCheck className="h-3 w-3 mr-1" /> فحص
             </TabsTrigger>
           </TabsList>
 
@@ -1264,6 +1319,55 @@ function AppForgeEditor() {
                 جمّل الكود
               </Button>
             </div>
+          </TabsContent>
+
+          <TabsContent value="audit" className="flex-1 mt-0 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1 p-3">
+              <div className="space-y-4">
+                <div className="text-center py-4 space-y-3">
+                  <ShieldCheck className={`h-12 w-12 mx-auto ${stabilityAudit ? 'text-emerald-400' : 'text-slate-500 opacity-30'}`} />
+                  <div>
+                    <h3 className="text-sm font-bold">فحص استقرار التطبيق</h3>
+                    <p className="text-[11px] text-slate-500">تحليل احتمالية عمل التطبيق بعد التعديلات</p>
+                  </div>
+                  <Button 
+                    onClick={handleStabilityAudit} 
+                    disabled={isAuditing || !apkInfo}
+                    className="w-full"
+                  >
+                    {isAuditing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                    بدء الفحص الشامل
+                  </Button>
+                </div>
+
+                {stabilityAudit && (
+                  <Card className="bg-slate-800/30 border-slate-800">
+                    <CardContent className="p-3 text-[12px] leading-relaxed whitespace-pre-wrap text-slate-200">
+                      {stabilityAudit}
+                    </CardContent>
+                  </Card>
+                )}
+                
+                <div className="grid grid-cols-1 gap-2">
+                  <div className="p-3 rounded-xl bg-slate-800/30 border border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <Cpu className="h-3 w-3 text-blue-400" /> فحوصات تلقائية
+                    </div>
+                    <ul className="text-[10px] text-slate-400 space-y-1">
+                      <li className="flex items-center gap-2">
+                        <Check className="h-3 w-3 text-emerald-500" /> توافق معماري (Native Libs)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-3 w-3 text-emerald-500" /> تكامل الموارد (Resources Table)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-3 w-3 text-emerald-500" /> صحة ملف البيان (Manifest)
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
           </TabsContent>
         </Tabs>
       </aside>

@@ -27,29 +27,29 @@ export interface APKFile {
 
 export interface APKPermission {
   name: string;
-  protectionLevel?: string | null;
-  description?: string | null;
+  protectionLevel?: string;
+  description?: string;
   isDangerous: boolean;
-  isGranted?: boolean | null;
+  isGranted?: boolean;
 }
 
 export interface APKComponent {
   name: string;
-  exported?: boolean | null;
-  enabled?: boolean | null;
-  permission?: string | null;
+  exported?: boolean;
+  enabled?: boolean;
+  permission?: string;
 }
 
 export interface APKInfo {
   packageName: string;
   versionName: string;
   versionCode: string;
-  appName?: string | null;
-  minSdk?: string | null;
-  targetSdk?: string | null;
-  compileSdk?: string | null;
-  debuggable?: boolean | null;
-  allowBackup?: boolean | null;
+  appName?: string;
+  minSdk?: string;
+  targetSdk?: string;
+  compileSdk?: string;
+  debuggable?: boolean;
+  allowBackup?: boolean;
   permissions: APKPermission[];
   activities: APKComponent[];
   services: APKComponent[];
@@ -57,7 +57,7 @@ export interface APKInfo {
   providers: APKComponent[];
   features: string[];
   usesSdk: string[];
-  icon?: string | null;
+  icon?: string;
   fileSize: number;
   fileCount: number;
   dexCount: number;
@@ -70,17 +70,17 @@ export interface CertificateInfo {
   fileName: string;
   path: string;
   type: 'RSA' | 'DSA' | 'EC' | 'UNKNOWN';
-  signatureVersion?: string | null;
-  issuer?: string | null;
-  subject?: string | null;
-  serialNumber?: string | null;
-  validFrom?: string | null;
-  validTo?: string | null;
-  fingerprintMD5?: string | null;
-  fingerprintSHA1?: string | null;
-  fingerprintSHA256?: string | null;
+  signatureVersion?: string;
+  issuer?: string;
+  subject?: string;
+  serialNumber?: string;
+  validFrom?: string;
+  validTo?: string;
+  fingerprintMD5?: string;
+  fingerprintSHA1?: string;
+  fingerprintSHA256?: string;
   size: number;
-  isDebug?: boolean | null;
+  isDebug?: boolean;
 }
 
 export interface CertificateInfo {

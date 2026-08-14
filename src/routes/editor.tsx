@@ -39,9 +39,17 @@ import {
   type CategoryStats,
   type APKCategory,
   CATEGORY_META,
-  formatBytes,
   getFileLanguage,
 } from "@/lib/apk-processor";
+import {
+  bridgeHealth,
+  bridgeUpload,
+  bridgeReadFile,
+  bridgeWriteFile,
+  bridgeBuild,
+  bridgeDownloadUrl,
+  type BridgeFileEntry,
+} from "@/lib/bridge-client";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +80,29 @@ export const Route = createFileRoute("/editor")({
 
 const APK_META_KEY = "APPFORGE_APK_META";
 
+// Map a decompiled path to the same categories the UI already understands.
+function bridgeCategory(p: string): APKCategory {
+  if (p === "AndroidManifest.xml") return "manifest";
+  if (p.startsWith("smali") || p.endsWith(".dex") || p.startsWith("kotlin/")) return "code";
+  if (p.startsWith("res/") || p.startsWith("assets/")) return "resources";
+  if (p.startsWith("lib/")) return "native";
+  if (p.endsWith(".json") || p.endsWith(".properties") || p.endsWith(".yml") || p.endsWith(".xml")) return "config";
+  if (p.startsWith("META-INF/") || p.endsWith(".RSA") || p.endsWith(".DSA") || p.endsWith(".SF")) return "security";
+  return "other";
+}
+
+function bridgeToAPKFile(entry: BridgeFileEntry): APKFile {
+  return {
+    name: entry.path.split("/").pop() || entry.path,
+    path: entry.path,
+    content: "",
+    type: entry.editable ? "text" : "binary",
+    category: bridgeCategory(entry.path),
+    size: entry.size || 0,
+    editable: !!entry.editable,
+  };
+}
+
 function AppForgeEditor() {
   const [searchQuery, setSearchQuery] = React.useState("");
   
@@ -87,6 +118,7 @@ function AppForgeEditor() {
   // UI State
   const [isLoading, setIsLoading] = React.useState(false);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [bridgeOnline, setBridgeOnline] = React.useState(false);
   const [leftTab, setLeftTab] = React.useState<"categories" | "files" | "certs">("categories");
   const [centerTab, setCenterTab] = React.useState<"code" | "visual" | "preview">("code");
   const [rightTab, setRightTab] = React.useState<"info" | "perms" | "ai">("info");
@@ -109,6 +141,10 @@ function AppForgeEditor() {
   const [chatInput, setChatInput] = React.useState("");
   const [originalCode, setOriginalCode] = React.useState<string>("");
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
+
+  // True when the current session is decompiled on the bridge (real smali/manifest),
+  // so edits and builds are routed through the bridge rather than in-browser JSZip.
+  const bridgeSession = React.useRef(false);
 
   // Initialization
   React.useEffect(() => {
@@ -146,6 +182,21 @@ function AppForgeEditor() {
     init();
   }, []);
 
+  // Detect the local bridge (decompile/rebuild/sign engine) on the user's machine.
+  React.useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      const online = await bridgeHealth();
+      if (!cancelled) setBridgeOnline(online);
+    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Derived State
   const activeFile = React.useMemo(() => {
     if (activeFilePath) return apkFiles.find(f => f.path === activeFilePath);
@@ -175,7 +226,55 @@ function AppForgeEditor() {
     setIsLoading(true);
     const toastId = toast.loading(`جاري تحليل ${file.name}...`);
     try {
+      // Prefer the local bridge: it gives real smali, a parsed AndroidManifest,
+      // and a signed, installable rebuild.
+      if (bridgeOnline) {
+        const result = await bridgeUpload(file);
+        const fileEntries = result.files.filter((f) => f.type === "file");
+        setApkFiles(fileEntries.map(bridgeToAPKFile));
+        setCertificates([]);
+        const categories: APKCategory[] = ["manifest", "code", "resources", "native", "config", "security", "other"];
+        setCategoryStats(
+          categories
+            .map((cat) => {
+              const catFiles = fileEntries.filter((f) => bridgeCategory(f.path) === cat);
+              return { category: cat, count: catFiles.length, totalSize: catFiles.reduce((a, f) => a + (f.size || 0), 0) };
+            })
+            .filter((s) => s.count > 0),
+        );
+
+        const m = result.manifest;
+        setApkInfo({
+          packageName: m?.packageName || file.name.replace(".apk", ""),
+          versionName: m?.versionName || "?",
+          versionCode: m?.versionCode || "?",
+          minSdk: m?.minSdk || "?",
+          targetSdk: m?.targetSdk || "?",
+          appName: m?.appName || file.name.replace(".apk", ""),
+          debuggable: m?.debuggable || false,
+          dexCount: fileEntries.filter((f) => f.path.endsWith(".dex")).length,
+          hasNativeLibs: fileEntries.some((f) => f.path.startsWith("lib/")),
+          architectures: [],
+          activities: m?.activities || [],
+          services: m?.services || [],
+          receivers: m?.receivers || [],
+          providers: m?.providers || [],
+          permissions: m?.permissions || [],
+        });
+
+        bridgeSession.current = true;
+        const manifestPath = "AndroidManifest.xml";
+        setActiveFilePath(manifestPath);
+        setOpenTabs([manifestPath]);
+        toast.success("تم فك التطبيق عبر الجسر المحلي (Smali حقيقي)", { id: toastId });
+        setLeftTab("categories");
+        setIsLoading(false);
+        return;
+      }
+
+      // Fallback: in-browser JSZip (fast, but no real decompile/sign).
       const result = await apkProcessor.loadAPK(file);
+      bridgeSession.current = false;
       setApkFiles(apkProcessor.getAllFiles());
       setApkInfo(result.info);
       setCertificates(result.certificates);
@@ -198,7 +297,7 @@ function AppForgeEditor() {
         })),
       });
 
-      toast.success("تم التحليل بنجاح", { id: toastId });
+      toast.success("تم التحليل بنجاح (داخل المتصفح)", { id: toastId });
       setLeftTab("categories");
     } catch (err: any) {
       toast.error(`فشل التحليل: ${err.message}`, { id: toastId });
@@ -214,7 +313,7 @@ function AppForgeEditor() {
     if (file) handleAPKUpload(file);
   };
 
-  const openFile = (path: string) => {
+  const openFile = async (path: string) => {
     setActiveFilePath(path);
     if (!openTabs.includes(path)) {
       setOpenTabs(prev => [...prev, path].slice(-10));
@@ -222,6 +321,19 @@ function AppForgeEditor() {
     if (path === "AndroidManifest.xml") setCenterTab("visual");
     else if (path.match(/\.(png|jpg|jpeg|webp|gif)$/i)) setCenterTab("preview");
     else setCenterTab("code");
+
+    // Lazy-load text content from the bridge on first open.
+    if (bridgeSession.current) {
+      const file = apkFiles.find((f) => f.path === path);
+      if (file && file.editable && typeof file.content === "string" && file.content === "") {
+        try {
+          const content = await bridgeReadFile(path);
+          setApkFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)));
+        } catch {
+          toast.error(`تعذّر قراءة الملف: ${path}`);
+        }
+      }
+    }
   };
 
   const closeTab = (path: string, e?: React.MouseEvent) => {
@@ -236,6 +348,15 @@ function AppForgeEditor() {
   const handleEditorChange = (value: string | undefined) => {
     if (!activeFilePath) return;
     const content = value || "";
+    if (bridgeSession.current) {
+      setApkFiles(prev => prev.map(f => f.path === activeFilePath ? { ...f, content } : f));
+      // Persist to the bridge (debounced) so the rebuild picks up the edit.
+      clearTimeout((handleEditorChange as any)._t);
+      (handleEditorChange as any)._t = setTimeout(() => {
+        bridgeWriteFile(activeFilePath, content).catch(() => toast.error("فشل حفظ الملف على الجسر المحلي"));
+      }, 600);
+      return;
+    }
     apkProcessor.updateFileContent(activeFilePath, content);
     setApkFiles(prev => prev.map(f => f.path === activeFilePath ? { ...f, content } : f));
   };
@@ -244,6 +365,17 @@ function AppForgeEditor() {
     if (apkFiles.length === 0) return;
     const toastId = toast.loading("جاري إعادة بناء APK...");
     try {
+      if (bridgeSession.current) {
+        // Rebuild + zipalign + sign on the bridge => installable APK.
+        const { fileName } = await bridgeBuild();
+        const a = document.createElement("a");
+        a.href = bridgeDownloadUrl();
+        a.download = fileName;
+        a.click();
+        toast.success("تم البناء والتوقيع والتنزيل APK قابل للتثبيت", { id: toastId });
+        return;
+      }
+      // In-browser fallback (unsigned — will NOT install).
       const blob = await apkProcessor.rebuildAPK({ removeSignature: true });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -251,7 +383,7 @@ function AppForgeEditor() {
       a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("تم إعادة البناء وتنزيل APK", { id: toastId });
+      toast.success("تم التنزيل (غير موقّع — فعّل الجسر المحلي لتوقيعه)", { id: toastId });
     } catch (err: any) {
       toast.error(`فشل البناء: ${err.message}`, { id: toastId });
     }
@@ -403,7 +535,16 @@ function AppForgeEditor() {
               </Badge>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <span
+              className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded ${
+                bridgeOnline ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+              }`}
+              title={bridgeOnline ? "الجسر المحلي متصل (فك + توقيع)" : "الجسر المحلي غير متصل — التشغيل داخل المتصفح فقط"}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${bridgeOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
+              {bridgeOnline ? "Bridge" : "Browser"}
+            </span>
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowSetup(true)}>
               <Wrench className="h-3 w-3 mr-1" /> Setup
             </Button>

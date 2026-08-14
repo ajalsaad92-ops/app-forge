@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { writeFileSync, mkdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -33,8 +33,8 @@ export const Route = createFileRoute('/api/apk/decompile')({
           // Ensure apktool jar exists
           if (!fs.existsSync(APKTOOL_JAR)) {
             // Auto-download if missing
-            const { execSync: syncExec } = await import('node:child_process');
-            syncExec(`curl -L -o ${APKTOOL_JAR} https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar`);
+            const { spawnSync: spSync } = await import('node:child_process');
+            spSync('curl', ['-L', '-o', APKTOOL_JAR, 'https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar']);
           }
 
           // Execute decompile

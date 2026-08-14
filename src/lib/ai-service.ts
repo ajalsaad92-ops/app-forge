@@ -173,16 +173,6 @@ export const PROVIDERS: Record<AIProvider, ProviderInfo> = {
   },
 };
 
-export const PROVIDER_LINKS = Object.fromEntries(
-  Object.values(PROVIDERS).map((p) => [p.id, p.link]),
-) as Record<AIProvider, string>;
-export const PROVIDER_MODELS = Object.fromEntries(
-  Object.values(PROVIDERS).map((p) => [p.id, p.model]),
-) as Record<AIProvider, string>;
-export const PROVIDER_BASE_URLS = Object.fromEntries(
-  Object.values(PROVIDERS).map((p) => [p.id, p.baseUrl]),
-) as Record<AIProvider, string | null>;
-
 function apiError(body: string, status: number): Error {
   try {
     const parsed = JSON.parse(body);
@@ -401,9 +391,121 @@ export async function getCodeAction(
   };
 }
 
-export async function auditCodebase(settings: AISettings): Promise<string> {
-  return callAI(
-    settings,
-    "Analyze the APP-FORGE React/Vite APK editor architecture. Identify security, reliability, and UX improvements.",
-  );
+// ---------------------------------------------------------------------------
+// Phase 4: provider management + full-project analysis
+// ---------------------------------------------------------------------------
+
+export interface AITestResult {
+  ok: boolean;
+  latencyMs: number;
+  model: string;
+  message: string;
+}
+
+/** Ping the selected provider with a tiny prompt to verify the key works. */
+export async function testAIConnection(settings: AISettings): Promise<AITestResult> {
+  const start = Date.now();
+  const model = PROVIDERS[settings.provider].model;
+  if (settings.provider === "demo") {
+    return {
+      ok: true,
+      latencyMs: 0,
+      model,
+      message: "وضع Demo يعمل محليًا دون مفتاح ولا يرسل بياناتك لأي جهة.",
+    };
+  }
+  try {
+    const reply = await callAI(
+      settings,
+      "Reply with exactly: OK",
+      "You are a connectivity test. Reply with exactly: OK",
+    );
+    return { ok: true, latencyMs: Date.now() - start, model, message: reply.slice(0, 120) };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - start,
+      model,
+      message: err instanceof Error ? err.message : "فشل الاتصال بالمزوّد",
+    };
+  }
+}
+
+/** Providers grouped into free / paid for the settings UI. */
+export function providersByTier(): { free: ProviderInfo[]; paid: ProviderInfo[] } {
+  const free = Object.values(PROVIDERS).filter((p) => p.free && p.id !== "demo");
+  const paid = Object.values(PROVIDERS).filter((p) => !p.free);
+  return { free, paid };
+}
+
+export interface ProjectFileDump {
+  path: string;
+  content: string;
+}
+
+// Local (demo) analysis that scans decompiled files for known Android patterns.
+// Gives real value without any API key, and keeps all data on-device.
+function demoProjectAnswer(files: ProjectFileDump[], question: string): string {
+  const patterns: Array<{ label: string; icon: string; re: RegExp }> = [
+    { label: "الإعلانات (AdMob/Unity/AppLovin)", icon: "📢", re: /com\/google\/android\/gms\/ads|AdView|InterstitialAd|RewardedAd|AdMob|admob|com\.mopub|com\.unity3d\.ads|com\.applovin/i },
+    { label: "الشراء/الترخيص (Billing/License)", icon: "👑", re: /BillingClient|isPremium|isPurchased|isPro|checkLicense|isLicensed|LICENSED|NOT_LICENSED|inappbilling|licensecheck/i },
+    { label: "فحص التحديثات", icon: "🚫", re: /checkForUpdate|forceUpdate|checkUpdate|latestVersion|isUpdateAvailable|updateUrl|appUpdate|update\.json/i },
+    { label: "تحقق الجذر (Root)", icon: "🛡️", re: /isRooted|checkRoot|isDeviceRooted|detectRoot|RootBeer|test-keys|magisk|frida|com\.topjohnwu/i },
+    { label: "تحقق التوقيع", icon: "✍️", re: /checkSignature|verifySignature|isSignatureValid|checkSign|getPackageInfo|GET_SIGNATURES/i },
+  ];
+
+  const hits: Array<{ icon: string; label: string; paths: string[] }> = [];
+  for (const p of patterns) {
+    const matched = files.filter((f) => p.re.test(f.content)).map((f) => f.path);
+    if (matched.length > 0) hits.push({ icon: p.icon, label: p.label, paths: matched.slice(0, 10) });
+  }
+
+  const lines: string[] = [];
+  lines.push(`### 🤖 تحليل محلي شامل (بدون مفتاح API)`);
+  lines.push(`فحصت **${files.length}** ملفًا نصيًا مفكوكًا داخل مشروعك.\n`);
+  if (hits.length === 0) {
+    lines.push("لم أجد أنماطًا شائعة (إعلانات/شراء/تحديثات/جذر/توقيع) في الملفات المفكوكة. جرّب سؤالًا محددًا أو استخدم مزوّد API لتحليل دلالي أعمق.");
+  } else {
+    lines.push("**ما وجدته تلقائيًا:**\n");
+    for (const h of hits) {
+      lines.push(`${h.icon} **${h.label}** — ${h.paths.length} موضع:`);
+      for (const path of h.paths) lines.push(`   - \`${path}\``);
+      lines.push("");
+    }
+  }
+  lines.push(`\n💡 سؤالك: "${question.slice(0, 200)}"`);
+  lines.push("للحصول على تفسير دلالي أعمق وتعديلات تلقائية، اختر مزوّد AI من الإعدادات (AI Settings).");
+  return lines.join("\n");
+}
+
+/**
+ * Feed the whole decompiled project (smali + manifest + resources) to the AI
+ * for a comprehensive analysis. Content is budgeted so it works with any
+ * provider's context window.
+ */
+export async function analyzeProject(
+  settings: AISettings,
+  files: ProjectFileDump[],
+  question: string,
+): Promise<string> {
+  if (settings.provider === "demo") return demoProjectAnswer(files, question);
+
+  const budget = 60000;
+  let used = 0;
+  const chunks: string[] = [];
+  for (const f of files) {
+    if (used >= budget) break;
+    const header = `\n===== ${f.path} =====\n`;
+    const remaining = budget - used - header.length;
+    if (remaining <= 0) break;
+    let body = f.content;
+    if (body.length > remaining) body = body.slice(0, remaining);
+    chunks.push(header + body);
+    used += header.length + body.length;
+  }
+
+  const system = `You are APP-FORGE AI, an expert Android APK reverse-engineering assistant. The user decompiled an APK and gives you its smali, AndroidManifest.xml and resources. Answer in Arabic while keeping English technical terms (class names, method names, paths). Be precise: cite file paths and method names when you reference them. Clearly separate observed facts from suggestions. Never claim a permission alone proves malicious behavior.`;
+
+  const prompt = `DECOMPILED PROJECT FILES:\n${chunks.join("\n")}\n\nQUESTION: ${question}`;
+  return callAI(settings, prompt, system);
 }

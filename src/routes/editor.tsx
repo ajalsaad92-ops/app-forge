@@ -6,43 +6,41 @@ import { ErrorFallback } from "@/components/ErrorFallback";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { 
   FileCode, 
-  Trash2, 
-  Play, 
   MessageSquare, 
-  ChevronRight, 
-  ChevronDown,
   Send,
-  Loader2,
-  Settings,
-  Split,
-  Key,
   Check,
   X,
   Upload,
-  Download,
-  Search,
   Wrench,
   Package,
   ShieldCheck,
   ShieldAlert,
   Info,
-  Smartphone
+  Settings,
+  Wand2,
+  Search,
+  Loader2,
+  HelpCircle,
+  Zap,
+  ExternalLink,
+  Sparkles
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { analyzeCode } from "@/lib/analysis.functions";
 import {
   getCodeAction,
-  auditCodebase,
   askAboutAPK,
   buildAPKContext,
   isAppWideQuestion,
+  analyzeProject,
+  testAIConnection,
+  providersByTier,
   type AIProvider,
   type AISettings,
+  type AITestResult,
   PROVIDERS,
-  PROVIDER_LINKS,
 } from "@/lib/ai-service";
 import {
   apkProcessor,
@@ -52,13 +50,26 @@ import {
   type CategoryStats,
   type APKCategory,
   CATEGORY_META,
-  formatBytes,
   getFileLanguage,
 } from "@/lib/apk-processor";
 import {
+  bridgeHealth,
+  bridgeUpload,
+  bridgeReadFile,
+  bridgeWriteFile,
+  bridgeBuild,
+  bridgeDownloadUrl,
+  bridgeListMods,
+  bridgeDetectMod,
+  bridgeApplyMod,
+  bridgeDump,
+  type BridgeFileEntry,
+  type BridgeMod,
+  type ModMatch,
+} from "@/lib/bridge-client";
+import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -73,7 +84,7 @@ import {
 } from "@/components/ui/select";
 import { SetupGuide } from "@/components/SetupGuide";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/editor")({
@@ -84,23 +95,33 @@ export const Route = createFileRoute("/editor")({
   ),
 });
 
-interface FileSystemItem {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  content?: string | Uint8Array | undefined;
-  parentId: string | null;
-}
-
-const STORAGE_KEY = "APPFORGE_FILES_V2";
 const APK_META_KEY = "APPFORGE_APK_META";
 
+// Map a decompiled path to the same categories the UI already understands.
+function bridgeCategory(p: string): APKCategory {
+  if (p === "AndroidManifest.xml") return "manifest";
+  if (p.startsWith("smali") || p.endsWith(".dex") || p.startsWith("kotlin/")) return "code";
+  if (p.startsWith("res/") || p.startsWith("assets/")) return "resources";
+  if (p.startsWith("lib/")) return "native";
+  if (p.endsWith(".json") || p.endsWith(".properties") || p.endsWith(".yml") || p.endsWith(".xml")) return "config";
+  if (p.startsWith("META-INF/") || p.endsWith(".RSA") || p.endsWith(".DSA") || p.endsWith(".SF")) return "security";
+  return "other";
+}
+
+function bridgeToAPKFile(entry: BridgeFileEntry): APKFile {
+  return {
+    name: entry.path.split("/").pop() || entry.path,
+    path: entry.path,
+    content: "",
+    type: entry.editable ? "text" : "binary",
+    category: bridgeCategory(entry.path),
+    size: entry.size || 0,
+    editable: !!entry.editable,
+  };
+}
+
 function AppForgeEditor() {
-  // Core Workspace State
-  const [files, setFiles] = React.useState<FileSystemItem[]>([]);
-  const [activeFileId, setActiveFileId] = React.useState<string>("");
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set());
   
   // APK Processor State
   const [apkFiles, setApkFiles] = React.useState<APKFile[]>([]);
@@ -114,6 +135,7 @@ function AppForgeEditor() {
   // UI State
   const [isLoading, setIsLoading] = React.useState(false);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [bridgeOnline, setBridgeOnline] = React.useState(false);
   const [leftTab, setLeftTab] = React.useState<"categories" | "files" | "certs">("categories");
   const [centerTab, setCenterTab] = React.useState<"code" | "visual" | "preview">("code");
   const [rightTab, setRightTab] = React.useState<"info" | "perms" | "ai">("info");
@@ -121,22 +143,43 @@ function AppForgeEditor() {
   const [showSettings, setShowSettings] = React.useState(false);
   const [showSetup, setShowSetup] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
-  const [isFileSystemLoaded, setIsFileSystemLoaded] = React.useState(false);
 
   // AI & Chat State
-  const [aiSettings, setAiSettings] = React.useState<AISettings>({
-    provider: "gemini",
-    apiKey: "",
-  });
+  const [aiProvider, setAiProvider] = React.useState<AIProvider>("gemini");
+  const [aiKeys, setAiKeys] = React.useState<Partial<Record<AIProvider, string>>>({});
   const [chatMessages, setChatMessages] = React.useState<{role: "user" | "ai"; content: string}[]>([
     {
       role: "ai",
-      content: "مرحباً! 👋 أنا مساعد APP-FORGE الذكي. يمكنك سؤالي عن أي ملف في الـ APK أو طلب تعديل الكود.\n\nHello! I can help you analyze and modify APK files. Upload an APK to start.",
+      content: "مرحباً! 👋 أنا مساعد APP-FORGE الذكي.\n\nيمكنك:\n• سؤالي عن أي ملف في الـ APK\n• طلب تعديل كود (سأعرض الفرق قبل التطبيق)\n• أو الضغط على «تحليل شامل» لفحص المشروع كاملًا\n\nارفع ملف APK للبدء.",
     },
   ]);
   const [chatInput, setChatInput] = React.useState("");
   const [originalCode, setOriginalCode] = React.useState<string>("");
   const [pendingCode, setPendingCode] = React.useState<string | null>(null);
+  const [showHelp, setShowHelp] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+  const [testResult, setTestResult] = React.useState<AITestResult | null>(null);
+
+  // Resolve the currently active AI settings from the per-provider key map.
+  const resolveAISettings = (): AISettings => ({
+    provider: aiProvider,
+    apiKey: aiKeys[aiProvider] || "",
+  });
+
+  // True when the current session is decompiled on the bridge (real smali/manifest),
+  // so edits and builds are routed through the bridge rather than in-browser JSZip.
+  const bridgeSession = React.useRef(false);
+
+  // Mods (Toolbox) state
+  interface ModEntry {
+    detected?: ModMatch[] | null;
+    changed?: string[] | null;
+    busy?: boolean;
+    error?: string | null;
+  }
+  const [showMods, setShowMods] = React.useState(false);
+  const [mods, setMods] = React.useState<BridgeMod[]>([]);
+  const [modState, setModState] = React.useState<Record<string, ModEntry>>({});
 
   // Initialization
   React.useEffect(() => {
@@ -144,7 +187,16 @@ function AppForgeEditor() {
       const savedSettings = localStorage.getItem("APPFORGE_AI_SETTINGS");
       if (savedSettings) {
         try {
-          setAiSettings(JSON.parse(savedSettings));
+          const parsed = JSON.parse(savedSettings);
+          if (parsed && typeof parsed === "object") {
+            setAiProvider((parsed.provider as AIProvider) || "gemini");
+            if (parsed.keys && typeof parsed.keys === "object") {
+              setAiKeys(parsed.keys);
+            } else if (typeof parsed.apiKey === "string" && parsed.apiKey) {
+              // migrate old single-key format
+              setAiKeys({ [parsed.provider as AIProvider]: parsed.apiKey });
+            }
+          }
         } catch (e) {
           console.error("Failed to parse AI settings", e);
         }
@@ -167,25 +219,27 @@ function AppForgeEditor() {
           }
         }
 
-        const storedFiles = await get<FileSystemItem[]>(STORAGE_KEY);
-        if (storedFiles && storedFiles.length > 0) {
-          setFiles(storedFiles);
-        }
       } catch (err) {
         console.error("Failed to load from IndexedDB", err);
-      } finally {
-        setIsFileSystemLoaded(true);
       }
     };
     init();
   }, []);
 
-  // Persistence
+  // Detect the local bridge (decompile/rebuild/sign engine) on the user's machine.
   React.useEffect(() => {
-    if (isFileSystemLoaded) {
-      set(STORAGE_KEY, files).catch(err => console.error("Save failed", err));
-    }
-  }, [files, isFileSystemLoaded]);
+    let cancelled = false;
+    const check = async () => {
+      const online = await bridgeHealth();
+      if (!cancelled) setBridgeOnline(online);
+    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Derived State
   const activeFile = React.useMemo(() => {
@@ -216,7 +270,55 @@ function AppForgeEditor() {
     setIsLoading(true);
     const toastId = toast.loading(`جاري تحليل ${file.name}...`);
     try {
+      // Prefer the local bridge: it gives real smali, a parsed AndroidManifest,
+      // and a signed, installable rebuild.
+      if (bridgeOnline) {
+        const result = await bridgeUpload(file);
+        const fileEntries = result.files.filter((f) => f.type === "file");
+        setApkFiles(fileEntries.map(bridgeToAPKFile));
+        setCertificates([]);
+        const categories: APKCategory[] = ["manifest", "code", "resources", "native", "config", "security", "other"];
+        setCategoryStats(
+          categories
+            .map((cat) => {
+              const catFiles = fileEntries.filter((f) => bridgeCategory(f.path) === cat);
+              return { category: cat, count: catFiles.length, totalSize: catFiles.reduce((a, f) => a + (f.size || 0), 0) };
+            })
+            .filter((s) => s.count > 0),
+        );
+
+        const m = result.manifest;
+        setApkInfo({
+          packageName: m?.packageName || file.name.replace(".apk", ""),
+          versionName: m?.versionName || "?",
+          versionCode: m?.versionCode || "?",
+          minSdk: m?.minSdk || "?",
+          targetSdk: m?.targetSdk || "?",
+          appName: m?.appName || file.name.replace(".apk", ""),
+          debuggable: m?.debuggable || false,
+          dexCount: fileEntries.filter((f) => f.path.endsWith(".dex")).length,
+          hasNativeLibs: fileEntries.some((f) => f.path.startsWith("lib/")),
+          architectures: [],
+          activities: m?.activities || [],
+          services: m?.services || [],
+          receivers: m?.receivers || [],
+          providers: m?.providers || [],
+          permissions: m?.permissions || [],
+        });
+
+        bridgeSession.current = true;
+        const manifestPath = "AndroidManifest.xml";
+        setActiveFilePath(manifestPath);
+        setOpenTabs([manifestPath]);
+        toast.success("تم فك التطبيق عبر الجسر المحلي (Smali حقيقي)", { id: toastId });
+        setLeftTab("categories");
+        setIsLoading(false);
+        return;
+      }
+
+      // Fallback: in-browser JSZip (fast, but no real decompile/sign).
       const result = await apkProcessor.loadAPK(file);
+      bridgeSession.current = false;
       setApkFiles(apkProcessor.getAllFiles());
       setApkInfo(result.info);
       setCertificates(result.certificates);
@@ -239,7 +341,7 @@ function AppForgeEditor() {
         })),
       });
 
-      toast.success("تم التحليل بنجاح", { id: toastId });
+      toast.success("تم التحليل بنجاح (داخل المتصفح)", { id: toastId });
       setLeftTab("categories");
     } catch (err: any) {
       toast.error(`فشل التحليل: ${err.message}`, { id: toastId });
@@ -255,7 +357,7 @@ function AppForgeEditor() {
     if (file) handleAPKUpload(file);
   };
 
-  const openFile = (path: string) => {
+  const openFile = async (path: string) => {
     setActiveFilePath(path);
     if (!openTabs.includes(path)) {
       setOpenTabs(prev => [...prev, path].slice(-10));
@@ -263,6 +365,19 @@ function AppForgeEditor() {
     if (path === "AndroidManifest.xml") setCenterTab("visual");
     else if (path.match(/\.(png|jpg|jpeg|webp|gif)$/i)) setCenterTab("preview");
     else setCenterTab("code");
+
+    // Lazy-load text content from the bridge on first open.
+    if (bridgeSession.current) {
+      const file = apkFiles.find((f) => f.path === path);
+      if (file && file.editable && typeof file.content === "string" && file.content === "") {
+        try {
+          const content = await bridgeReadFile(path);
+          setApkFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)));
+        } catch {
+          toast.error(`تعذّر قراءة الملف: ${path}`);
+        }
+      }
+    }
   };
 
   const closeTab = (path: string, e?: React.MouseEvent) => {
@@ -277,6 +392,15 @@ function AppForgeEditor() {
   const handleEditorChange = (value: string | undefined) => {
     if (!activeFilePath) return;
     const content = value || "";
+    if (bridgeSession.current) {
+      setApkFiles(prev => prev.map(f => f.path === activeFilePath ? { ...f, content } : f));
+      // Persist to the bridge (debounced) so the rebuild picks up the edit.
+      clearTimeout((handleEditorChange as any)._t);
+      (handleEditorChange as any)._t = setTimeout(() => {
+        bridgeWriteFile(activeFilePath, content).catch(() => toast.error("فشل حفظ الملف على الجسر المحلي"));
+      }, 600);
+      return;
+    }
     apkProcessor.updateFileContent(activeFilePath, content);
     setApkFiles(prev => prev.map(f => f.path === activeFilePath ? { ...f, content } : f));
   };
@@ -285,6 +409,17 @@ function AppForgeEditor() {
     if (apkFiles.length === 0) return;
     const toastId = toast.loading("جاري إعادة بناء APK...");
     try {
+      if (bridgeSession.current) {
+        // Rebuild + zipalign + sign on the bridge => installable APK.
+        const { fileName } = await bridgeBuild();
+        const a = document.createElement("a");
+        a.href = bridgeDownloadUrl();
+        a.download = fileName;
+        a.click();
+        toast.success("تم البناء والتوقيع والتنزيل APK قابل للتثبيت", { id: toastId });
+        return;
+      }
+      // In-browser fallback (unsigned — will NOT install).
       const blob = await apkProcessor.rebuildAPK({ removeSignature: true });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -292,25 +427,9 @@ function AppForgeEditor() {
       a.download = `${apkInfo?.packageName || "app"}-modded.apk`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("تم إعادة البناء وتنزيل APK", { id: toastId });
+      toast.success("تم التنزيل (غير موقّع — فعّل الجسر المحلي لتوقيعه)", { id: toastId });
     } catch (err: any) {
       toast.error(`فشل البناء: ${err.message}`, { id: toastId });
-    }
-  };
-
-  const runAnalysis = async () => {
-    if (!activeFile || typeof activeFile.content !== 'string') return;
-    setIsAnalyzing(true);
-    try {
-      const result = await analyzeCode({ data: { code: activeFile.content, fileName: activeFile.name } });
-      setChatMessages(prev => [...prev, { 
-        role: 'ai', 
-        content: `**تحليل ${activeFile.name}:**\n${result.summary}\n\n**اقتراحات:**\n${result.suggestions.map(s => `• ${s}`).join('\n')}` 
-      }]);
-    } catch {
-      toast.error("فشل التحليل");
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
@@ -324,6 +443,7 @@ function AppForgeEditor() {
     setIsAnalyzing(true);
 
     try {
+      const settings = resolveAISettings();
       const appWide = isAppWideQuestion(userMsg);
       const apkContext = buildAPKContext({
         info: apkInfo,
@@ -333,10 +453,10 @@ function AppForgeEditor() {
       });
 
       if (appWide) {
-        const answer = await askAboutAPK(aiSettings, userMsg, apkContext);
+        const answer = await askAboutAPK(settings, userMsg, apkContext);
         setChatMessages(prev => [...prev, { role: "ai", content: answer }]);
       } else if (activeFile && typeof activeFile.content === "string") {
-        const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg, apkContext);
+        const actionResult = await getCodeAction(settings, activeFile.content, userMsg, apkContext);
         const changed = actionResult.modifiedCode !== activeFile.content;
         setPendingCode(changed ? actionResult.modifiedCode : null);
         setOriginalCode(activeFile.content);
@@ -346,6 +466,36 @@ function AppForgeEditor() {
         }]);
         if (changed) setViewMode("diff");
       }
+    } catch (err: any) {
+      setChatMessages(prev => [...prev, { role: "ai", content: `خطأ: ${err.message}` }]);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Full-project analysis: feed every decompiled text file to the AI.
+  const runFullAnalysis = async () => {
+    if (!bridgeSession.current) {
+      toast.error("التحليل الشامل يتطلب الجسر المحلي (فكّ التطبيق أولًا).");
+      return;
+    }
+    setIsAnalyzing(true);
+    try {
+      const files = await bridgeDump();
+      if (files.length === 0) {
+        setChatMessages(prev => [...prev, { role: "ai", content: "لم أجد ملفات نصية مفكوكة لتحليلها." }]);
+        return;
+      }
+      setChatMessages(prev => [...prev, {
+        role: "user",
+        content: "🔎 تحليل شامل: افحص المشروع كاملًا واذكر الملفات القابلة للتعديل (إعلانات، شراء، تحديثات، جذر، توقيع) مع مساراتها.",
+      }]);
+      const answer = await analyzeProject(
+        resolveAISettings(),
+        files,
+        "حلّل هذا التطبيق المفكوك بالكامل. اذكر: 1) الملفات القابلة للتعديل مباشرة (إعلانات/شراء/تحديثات/جذر/توقيع) مع مساراتها، 2) أي مخاطر أو سلوكيات مشبوهة، 3) توصيات بالتعديلات الجاهزة.",
+      );
+      setChatMessages(prev => [...prev, { role: "ai", content: answer }]);
     } catch (err: any) {
       setChatMessages(prev => [...prev, { role: "ai", content: `خطأ: ${err.message}` }]);
     } finally {
@@ -365,6 +515,59 @@ function AppForgeEditor() {
   const discardChanges = () => {
     setPendingCode(null);
     setViewMode("editor");
+  };
+
+  // --- Mods (Toolbox) handlers ---
+  const openMods = async () => {
+    setShowMods(true);
+    if (mods.length === 0) {
+      try {
+        setMods(await bridgeListMods());
+      } catch (err: any) {
+        toast.error(`تعذّر تحميل القوالب: ${err.message}`);
+      }
+    }
+  };
+
+  const patchModState = (modId: string, patch: Partial<ModEntry>) => {
+    setModState((s) => {
+      const next: Record<string, ModEntry> = { ...s };
+      next[modId] = { ...(s[modId] ?? {}), ...patch };
+      return next;
+    });
+  };
+
+  const runDetectMod = async (modId: string) => {
+    patchModState(modId, { busy: true, error: null });
+    try {
+      const { count, matches } = await bridgeDetectMod(modId);
+      patchModState(modId, { busy: false, detected: matches, changed: null, error: null });
+      toast.success(`وجد ${count} موضعًا قابلًا للتعديل`);
+    } catch (err: any) {
+      patchModState(modId, { busy: false, error: err.message });
+      toast.error(`فشل الاكتشاف: ${err.message}`);
+    }
+  };
+
+  const runApplyMod = async (modId: string) => {
+    patchModState(modId, { busy: true, error: null });
+    try {
+      const { changed } = await bridgeApplyMod(modId);
+      patchModState(modId, { busy: false, changed, detected: null, error: null });
+      // Refresh the modified files in the editor view.
+      for (const p of changed) {
+        try {
+          const content = await bridgeReadFile(p);
+          setApkFiles((prev) => prev.map((f) => (f.path === p ? { ...f, content } : f)));
+        } catch {
+          /* file may be binary or unreadable — ignore */
+        }
+      }
+      toast.success(`تم التعديل في ${changed.length} ملفًا — اضغط Build لإعادة التوقيع`);
+    } catch (err: any) {
+      patchModState(modId, { busy: false, error: err.message });
+      toast.error(`فشل التطبيق: ${err.message}`);
+    }
   };
 
   return (
@@ -456,13 +659,31 @@ function AppForgeEditor() {
                 onClick={() => openFile(path)}
               >
                 {path.split('/').pop()}
-                <X className="h-3 w-3" onClick={(e) => closeTab(path, e)} />
+                <X className="h-3 w-3" onClick={(e: React.MouseEvent) => closeTab(path, e)} />
               </Badge>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setShowHelp(true)} title="مساعدة">
+              <HelpCircle className="h-4 w-4" />
+            </Button>
+            <span
+              className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded ${
+                bridgeOnline ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+              }`}
+              title={bridgeOnline ? "الجسر المحلي متصل (فك + توقيع)" : "الجسر المحلي غير متصل — التشغيل داخل المتصفح فقط"}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${bridgeOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
+              {bridgeOnline ? "Bridge" : "Browser"}
+            </span>
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowSetup(true)}>
               <Wrench className="h-3 w-3 mr-1" /> Setup
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowSettings(true)}>
+              <Settings className="h-3 w-3 mr-1" /> AI Settings
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openMods} disabled={!bridgeSession.current}>
+              <Wand2 className="h-3 w-3 mr-1" /> Mods
             </Button>
             <Button size="sm" className="h-7 text-xs" onClick={handleRebuild}>Build</Button>
           </div>
@@ -524,22 +745,36 @@ function AppForgeEditor() {
           </TabsContent>
 
           <TabsContent value="ai" className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-3 pt-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                {PROVIDERS[aiProvider].icon} {PROVIDERS[aiProvider].label}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px] gap-1"
+                onClick={runFullAnalysis}
+                disabled={isAnalyzing || !bridgeSession.current}
+              >
+                <Sparkles className="h-3 w-3" /> تحليل شامل
+              </Button>
+            </div>
             <ScrollArea className="flex-1 p-3">
               <div className="space-y-3">
                 {chatMessages.map((m, i) => (
                   <div key={i} className={`p-2 rounded text-xs ${m.role === 'user' ? 'bg-primary/20 ml-4' : 'bg-slate-800 mr-4'}`}>
-                    <div className="font-bold opacity-50 mb-1">{m.role === 'user' ? 'You' : 'AI'}</div>
+                    <div className="font-bold opacity-50 mb-1">{m.role === 'user' ? 'أنت' : 'AI'}</div>
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   </div>
                 ))}
-                {isAnalyzing && <div className="text-xs animate-pulse">Thinking...</div>}
+                {isAnalyzing && <div className="text-xs animate-pulse">جارٍ التفكير...</div>}
               </div>
             </ScrollArea>
             <form onSubmit={sendChatMessage} className="p-3 border-t border-slate-800 flex gap-2">
               <Input 
                 value={chatInput} 
                 onChange={(e) => setChatInput(e.target.value)} 
-                placeholder="Ask AI..." 
+                placeholder="اسأل الذكاء الاصطناعي..." 
                 className="h-9 text-xs" 
               />
               <Button type="submit" size="icon" className="h-9 w-9 shrink-0"><Send className="h-4 w-4" /></Button>
@@ -548,36 +783,269 @@ function AppForgeEditor() {
         </Tabs>
       </aside>
 
-      {/* Settings */}
+      {/* AI Settings */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="bg-slate-900 border-slate-800">
-          <DialogHeader><DialogTitle>AI Settings</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-             <div className="space-y-2">
-               <Label>Provider</Label>
-               <Select value={aiSettings.provider} onValueChange={(v: AIProvider) => setAiSettings({...aiSettings, provider: v})}>
-                 <SelectTrigger className="bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
-                 <SelectContent className="bg-slate-800 border-slate-700">
-                    {Object.values(PROVIDERS).map(p => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-                 </SelectContent>
-               </Select>
-             </div>
-             <div className="space-y-2">
-               <Label>API Key</Label>
-               <Input 
-                 type="password" 
-                 value={aiSettings.apiKey} 
-                 onChange={(e) => setAiSettings({...aiSettings, apiKey: e.target.value})}
-                 className="bg-slate-800 border-slate-700"
-               />
-             </div>
-          </div>
+        <DialogContent className="max-w-xl bg-slate-900 border-slate-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-primary" /> إعدادات الذكاء الاصطناعي
+            </DialogTitle>
+            <p className="text-xs text-slate-400">
+              اختر مزوّدًا وأدخل مفتاحه. المفاتيح تُحفظ محليًا في متصفحك فقط ولا تُرسل لأي خادم آخر.
+            </p>
+          </DialogHeader>
+
+          <ScrollArea className="max-h-[55vh] pr-2 mt-2">
+            <div className="space-y-4">
+              {/* Current provider */}
+              <div className="space-y-2">
+                <Label>المزوّد الحالي</Label>
+                <Select value={aiProvider} onValueChange={(v: AIProvider) => { setAiProvider(v); setTestResult(null); }}>
+                  <SelectTrigger className="bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    {Object.values(PROVIDERS).map(p => <SelectItem key={p.id} value={p.id}>{p.icon} {p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* API key for current provider (demo needs none) */}
+              {aiProvider !== "demo" && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>API Key — {PROVIDERS[aiProvider].label}</Label>
+                    <a href={PROVIDERS[aiProvider].link} target="_blank" rel="noopener noreferrer" className="text-[11px] text-primary hover:underline inline-flex items-center gap-1">
+                      احصل على مفتاح <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <Input
+                    type="password"
+                    value={aiKeys[aiProvider] || ""}
+                    onChange={(e) => setAiKeys((prev) => ({ ...prev, [aiProvider]: e.target.value }))}
+                    placeholder="sk-..."
+                    className="bg-slate-800 border-slate-700"
+                  />
+                  <div className="text-[11px] text-slate-500">{PROVIDERS[aiProvider].freeQuota}</div>
+                </div>
+              )}
+
+              {/* Test connection */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={async () => {
+                    setTesting(true);
+                    setTestResult(null);
+                    const result = await testAIConnection(resolveAISettings());
+                    setTestResult(result);
+                    setTesting(false);
+                  }}
+                  disabled={testing}
+                >
+                  {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                  اختبار الاتصال
+                </Button>
+                {testResult && (
+                  <span className={`text-[11px] ${testResult.ok ? "text-emerald-400" : "text-rose-400"}`}>
+                    {testResult.ok ? `✅ متصل (${testResult.latencyMs}ms)` : `❌ ${testResult.message.slice(0, 80)}`}
+                  </span>
+                )}
+              </div>
+
+              {/* Free providers */}
+              <div>
+                <div className="text-[11px] font-bold text-emerald-400 mb-2">🟢 مزوّدات مجانية</div>
+                <div className="space-y-1.5">
+                  {providersByTier().free.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setAiProvider(p.id); setTestResult(null); }}
+                      className={`w-full text-left p-2.5 rounded-lg border flex items-center justify-between gap-2 transition-colors ${aiProvider === p.id ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base">{p.icon}</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold truncate">{p.label}</div>
+                          <div className="text-[10px] text-slate-500 truncate">{p.freeQuota}</div>
+                        </div>
+                      </div>
+                      {aiKeys[p.id] && <span className="text-emerald-400 text-[10px] shrink-0">مفتاح ✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Paid providers */}
+              <div>
+                <div className="text-[11px] font-bold text-amber-400 mb-2">🟡 مزوّدات مدفوعة / منخفضة التكلفة</div>
+                <div className="space-y-1.5">
+                  {providersByTier().paid.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setAiProvider(p.id); setTestResult(null); }}
+                      className={`w-full text-left p-2.5 rounded-lg border flex items-center justify-between gap-2 transition-colors ${aiProvider === p.id ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base">{p.icon}</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold truncate">{p.label}</div>
+                          <div className="text-[10px] text-slate-500 truncate">{p.freeQuota}</div>
+                        </div>
+                      </div>
+                      {aiKeys[p.id] && <span className="text-emerald-400 text-[10px] shrink-0">مفتاح ✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Demo */}
+              <button
+                onClick={() => { setAiProvider("demo"); setTestResult(null); }}
+                className={`w-full text-left p-2.5 rounded-lg border flex items-center gap-2 ${aiProvider === "demo" ? "bg-primary/20 border-primary" : "bg-slate-800/40 border-slate-700 hover:bg-slate-800"}`}
+              >
+                <span className="text-base">🎮</span>
+                <div>
+                  <div className="text-xs font-semibold">وضع Demo (بدون مفتاح)</div>
+                  <div className="text-[10px] text-slate-500">تحليل محلي سريع دون إرسال بياناتك لأي جهة</div>
+                </div>
+              </button>
+            </div>
+          </ScrollArea>
+
           <DialogFooter>
             <Button onClick={() => {
-              localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify(aiSettings));
+              localStorage.setItem("APPFORGE_AI_SETTINGS", JSON.stringify({ provider: aiProvider, keys: aiKeys }));
               setShowSettings(false);
-              toast.success("Saved");
-            }}>Save</Button>
+              toast.success("تم حفظ الإعدادات");
+            }}>حفظ</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mods Toolbox */}
+      <Dialog open={showMods} onOpenChange={setShowMods}>
+        <DialogContent className="max-w-2xl bg-slate-900 border-slate-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-5 w-5 text-primary" />
+              قوالب التعديل الجاهزة
+            </DialogTitle>
+            <p className="text-xs text-slate-400">
+              يكتشف المواضع القابلة للتعديل في Smali/المانيفست ويطبّق التعديل تلقائيًا.
+              احتفظ بنسخة احتياطية واختبر التطبيق بعد كل تعديل.
+            </p>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-2 mt-2">
+            <div className="space-y-3">
+              {mods.length === 0 && (
+                <div className="text-xs text-slate-400">لا توجد قوالب محمّلة. تأكد أن الجسر المحلي متصل.</div>
+              )}
+              {mods.map((mod) => {
+                const st: ModEntry = modState[mod.id] ?? {};
+                return (
+                  <div key={mod.id} className="p-3 rounded-lg border border-slate-700 bg-slate-800/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{mod.icon}</span>
+                          <span className="font-bold text-sm">{mod.nameAr}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{mod.descriptionAr}</p>
+                      </div>
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-[11px] gap-1"
+                          onClick={() => runDetectMod(mod.id)}
+                          disabled={st.busy}
+                        >
+                          {st.busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                          اكتشاف
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-7 text-[11px] gap-1"
+                          onClick={() => runApplyMod(mod.id)}
+                          disabled={st.busy}
+                        >
+                          <Check className="h-3 w-3" /> تطبيق
+                        </Button>
+                      </div>
+                    </div>
+
+                    {st.error && <div className="text-[11px] text-rose-400 mt-2">{st.error}</div>}
+
+                    {st.detected && st.detected.length > 0 && (
+                      <div className="mt-2 text-[11px]">
+                        <div className="text-emerald-400 mb-1">تم العثور على {st.detected.length} موضع:</div>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {st.detected.slice(0, 50).map((mt, i) => (
+                            <div key={i} className="truncate text-slate-400">
+                              <span className="text-slate-600">{mt.path}</span>
+                              {mt.method ? ` — ${mt.method}` : ` — ${mt.snippet}`}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {st.changed && st.changed.length > 0 && (
+                      <div className="mt-2 text-[11px] text-emerald-400">
+                        تم تعديل {st.changed.length} ملف:
+                        <div className="space-y-1 max-h-32 overflow-y-auto mt-1">
+                          {st.changed.map((p, i) => (
+                            <div key={i} className="truncate text-slate-300">{p}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowMods(false)} className="border-slate-700 hover:bg-slate-800">
+              إغلاق
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Help / Onboarding */}
+      <Dialog open={showHelp} onOpenChange={setShowHelp}>
+        <DialogContent className="max-w-xl bg-slate-900 border-slate-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <HelpCircle className="h-5 w-5 text-primary" /> كيف تستخدم APP-FORGE؟
+            </DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-2 mt-2">
+            <div className="space-y-3 text-xs leading-relaxed">
+              {[
+                { icon: "🔌", title: "1) جهّز الجسر المحلي", body: "زر «Setup» يتحقق من الأدوات (Java/apktool/apksigner/zipalign) ويثبّتها بنقرة. عندما يتحول المؤشر العلوي إلى «Bridge» أخضر، فأنت جاهز للتعديل الحقيقي." },
+                { icon: "📦", title: "2) ارفع ملف APK", body: "اسحب الملف أو اضغط لرفعه. مع الجسر المتصل يُفكّ التطبيق إلى Smali ومانيفست وموارد حقيقية (وليس مجرد ZIP)." },
+                { icon: "📂", title: "3) تصفّح وعدّل", body: "العمود الأيسر يعرض الملفات مصنّفة. اضغط أي ملف نصي لتحريره في المحرر الأوسط، وستُحفظ تعديلاتك تلقائيًا." },
+                { icon: "🪄", title: "4) استخدم قوالب التعديل", body: "زر «Mods» يفتح قوالب جاهزة (قطع التحديثات، تفعيل الشراء، إزالة الإعلانات، إزالة تحقق الجذر/التوقيع). لكل قالب «اكتشاف» و«تطبيق»." },
+                { icon: "🤖", title: "5) استعن بالذكاء الاصطناعي", body: "العمود الأيمن فيه محادثة AI. اضغط «تحليل شامل» لفحص كل الملفات، أو اطلب تعديل كود مباشرة وسيعرض الفرق قبل التطبيق. من «AI Settings» اختر مزوّدًا مجانيًا أو مدفوعًا." },
+                { icon: "🔨", title: "6) ابنِ ووقّع", body: "زر «Build» يعيد البناء والمحاذاة والتوقيع وينزّل APK جاهزًا للتثبيت. بدون الجسر، سيكون الناتج غير موقّع ولن يثبَّت." },
+              ].map((s, i) => (
+                <div key={i} className="p-3 rounded-lg border border-slate-700 bg-slate-800/40">
+                  <div className="font-bold mb-1 flex items-center gap-2"><span>{s.icon}</span>{s.title}</div>
+                  <div className="text-slate-400">{s.body}</div>
+                </div>
+              ))}
+
+              <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-amber-300 text-[11px]">
+                ⚠️ <b>تنبيه:</b> تعديل تطبيقات الآخرين (إزالة الشراء/الإعلانات) قد يخالف شروط الاستخدام وحقوق الملكية.
+                استخدم الأداة للأغراض التعليمية وللتطبيقات التي تملك حق تعديلها، واحتفظ دائمًا بنسخة احتياطية واختبر بعد كل تعديل.
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button onClick={() => setShowHelp(false)}>فهمت</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

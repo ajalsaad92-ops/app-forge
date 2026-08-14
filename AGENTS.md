@@ -8,3 +8,87 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+---
+
+# APP-FORGE — دليل التطوير الكامل (لكل من يعمل على المشروع، ولوفابل)
+
+## ما هذا المشروع؟
+
+**APP-FORGE** تطبيق ويب لتعديل تطبيقات أندرويد (APK): يفكّ التطبيق، يصنّف ملفاته،
+يطبّق قوالب تعديل جاهزة، يحلّله بالذكاء الاصطناعي، ثم يعيد البناء والتوقيع ليخرج
+APK قابلًا للتثبيت.
+
+## البنية (Architecture) — مهم جدًا
+
+التطبيق جزآن منفصلان:
+
+1. **الواجهة (هذا المشروع)** — TanStack Start + Vite + React 19 + Monaco Editor.
+   تعمل في المتصفح، وتُستضاف على Lovable (أو تعمل محليًا بـ `npm run dev`).
+
+2. **الجسر المحلي (Local Bridge)** — خادم Node مستقل في `server/apk-bridge.mjs`
+   يعمل **على جهاز المستخدم**، ويشغّل أدوات أندرويد الحقيقية:
+   `apktool` (فكّ/بناء) + `zipalign` + `apksigner` (توقيع).
+
+> ⚠️ **لماذا هذا الفصل؟** المتصفح لا يستطيع فكّ/توقيع APK. والجسر يتطلب Java 17 +
+> أدوات أندرويد مثبّتة محليًا. لذلك **لا تحاول** تشغيل apktool على خادم Lovable —
+> لا توجد أدوات هناك. الجسر يعمل دائمًا محليًا على جهاز المستخدم، وتتواصل معه الواجهة
+> عبر `http://localhost:3000` (وهذا يعمل حتى لو كانت الواجهة مستضافة على Lovable، لأن
+> `localhost` من جهة المتصفح تعني جهاز المستخدم نفسه).
+
+## الأوامر
+
+| الأمر | الوظيفة |
+|---|---|
+| `npm run dev` | تشغيل الواجهة محليًا (Vite) |
+| `npm run build` | بناء الواجهة للإنتاج |
+| `npm run bridge` | تشغيل الجسر المحلي (فكّ + توقيع) — يتطلب Java/apktool |
+| `npm run lint` / `npm run format` | فحص وتنسيق الكود |
+
+## متغيّرات البيئة (.env)
+
+موجودة في `.env` (وتُحقن VITE_* منها إلى الواجهة):
+
+- `VITE_SUPABASE_URL` / `SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` — مطلوب فقط لدوال الخادم المتصلة بـ Supabase.
+
+> ملاحظة: مسار Supabase غير مستخدم حاليًا في أي مسار فعّال بعد تنظيف الكود الميت
+> (`src/lib/apk.functions.ts` حُذف). يمكن تجاهله، أو تفعيله لاحقًا لحفظ المشاريع.
+
+## هيكل الملفات المهم
+
+```
+src/routes/index.tsx        → الصفحة الرئيسية (الشرح والتسويق)
+src/routes/editor.tsx       → محرر التعديل الكامل (القلب)
+src/routes/__root.tsx       → الهيكل الجذري + الوسوم الوصفية (meta)
+src/lib/ai-service.ts       → طبقة الذكاء الاصطناعي (9 مزوّدات + تحليل شامل)
+src/lib/bridge-client.ts    → عميل الجسر المحلي (typesafe)
+src/lib/apk-processor.ts    → معالجة داخل المتصفح (احتياطي JSZip)
+src/components/SetupGuide.tsx → تثبيت الأدوات + حالة كل أداة
+server/apk-bridge.mjs       → الجسر المحلي (فكّ/بناء/توقيع/قوالب)
+server/mods.mjs             → محرك قوالب التعديل الجاهزة
+```
+
+## قواعد مهمة عند التعديل
+
+- **لا تعدّل** `src/routeTree.gen.ts` يدويًا (يُولّد تلقائيًا من المسارات).
+- **لا تعدّل** `src/integrations/supabase/*` (مولّدة تلقائيًا).
+- ملفات المسارات بنمط file-based routing — أضف ملفًا في `src/routes/` ليظهر كمسار.
+- الذكاء الاصطناعي: المفاتيح تُحفظ في `localStorage` (وليس على خادم). لا ترسلها للخادم.
+- التعديلات على الجسر (server/*.mjs) تحتاج إعادة تشغيل `npm run bridge`.
+
+## المتطلبات المحلية للتعديل الفعلي (للمستخدم النهائي)
+
+1. **Java 17+** — `winget install --id EclipseAdoptium.Temurin.17.JDK -e`
+2. **apktool** — `winget install --id apktool.apktool -e`
+3. **Android Build Tools** (apksigner + zipalign) — عبر Android Studio أو `sdkmanager "build-tools;34.0.0"`
+4. شغّل `npm run bridge` ثم استخدم التطبيق (يتحول المؤشر إلى "Bridge" أخضر).
+
+بدون هذه الأدوات يعمل التطبيق في وضع "Browser" (فكّ ZIP داخل المتصفح) لكن **الناتج
+لن يكون موقّعًا ولا قابلًا للتثبيت**.
+
+## ملاحظة قانونية
+
+التطبيق للأغراض التعليمية والتطبيقات التي تملك حق تعديلها. تعديل تطبيقات الآخرين
+(إزالة الشراء/الإعلانات) قد يخالف شروط الاستخدام وحقوق الملكية.

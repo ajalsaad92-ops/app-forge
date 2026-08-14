@@ -230,11 +230,3 @@ export class APKProcessor {
 }
 
 export const apkProcessor = new APKProcessor();
-
-export async function exportToZip(files: any[]): Promise<Blob> {
-  const zip = new JSZip();
-  files.forEach(f => {
-    if (f.type === 'file') zip.file(f.name, f.content || "");
-  });
-  return await zip.generateAsync({ type: "blob" });
-}

@@ -1,24 +1,58 @@
-# App Forge
+# APP-FORGE
 
-هل يمكن ان نصنع تطبيق يقوم بالتعديل على تطبيقات الاندرويد؟ هل ابحث في الكيت هب عن هذا الامر هناك مشروع مشابه
+**أداة لتعديل تطبيقات أندرويد (APK) وإعادة توقيعها — مدعومة بالذكاء الاصطناعي.**
 
-This project was built with [Lovable](https://lovable.dev).
+يفكّ APP-FORGE التطبيق إلى ملفاته الحقيقية (Smali + AndroidManifest + موارد)، يصنّفها،
+يطبّق قوالب تعديل جاهزة (قطع التحديثات، تفعيل الشراء بلا إنترنت، إزالة الإعلانات، إزالة
+تحقق الجذر والتوقيع)، ويحلّلها بالذكاء الاصطناعي، ثم يعيد البناء والتوقيع لتحصل على
+APK قابل للتثبيت.
 
-## Build with Lovable
+---
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/76fdde96-580c-4628-a7ec-52b353369405).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+## ⚡ التشغيل السريع
 
 ```sh
 git clone <this-repository-url>
-cd <repository-name>
+cd app-forge
 npm i
-npm run dev
+npm run dev          # الواجهة
+npm run bridge       # الجسر المحلي (نافذة طرفية ثانية) — يتطلب Java 17 + apktool
 ```
+
+ثم افتح `http://localhost:5173`.
+
+> للحصول على التعديل الفعلي (فكّ + توقيع)، يجب تثبيت الأدوات أولًا وتشغيل `npm run bridge`.
+> الواجهة تكتشف الجسر تلقائيًا وتعرض مؤشر "Bridge" أخضر عند اتصاله.
+
+## 📋 متطلبات التعديل الفعلي
+
+1. **Java 17+** — `winget install --id EclipseAdoptium.Temurin.17.JDK -e`
+2. **apktool** — `winget install --id apktool.apktool -e`
+3. **Android Build Tools** (apksigner + zipalign) — عبر Android Studio أو `sdkmanager "build-tools;34.0.0"`
+
+يمكن تثبيت Java وapktool تلقائيًا من داخل التطبيق (زر **Setup** ← "تثبيت تلقائي الآن").
+
+## 🧠 مزوّدات الذكاء الاصطناعي
+
+يدعم 9 مزوّدات عبر API Key (تُحفظ محليًا في متصفحك فقط):
+
+- **مجانية**: Gemini، Groq، SiliconFlow، OpenRouter (:free)، Together، Mistral، Hugging Face
+- **مدفوعة/منخفضة التكلفة**: DeepSeek
+- **Demo**: يعمل دون مفتاح (تحليل محلي)
+
+## 🏗️ البنية
+
+- **الواجهة**: TanStack Start + Vite + React 19 + Monaco Editor + Tailwind.
+- **الجسر المحلي**: `server/apk-bridge.mjs` (Node/Express) يشغّل apktool/zipalign/apksigner،
+  ويستضيف محرك القوالب `server/mods.mjs`.
+
+التوثيق التفصيلي للمطوّرين في [`AGENTS.md`](./AGENTS.md)، والتحليل الكامل للمشروع في [`ANALYSIS.md`](./ANALYSIS.md).
+
+## ☁️ الربط مع Lovable
+
+هذا المشروع مبني على [Lovable](https://lovable.dev) ومتصل به. أي commit تدفعه إلى الفرع
+المتصل يتزامن تلقائيًا مع محرر Lovable.
+
+- **لا تعِد كتابة التاريخ** (لا force-push / rebase / amend) للcommits المرفوعة مسبقًا.
+- حافظ على الفرع في حالة تعمل (`npm run build` ينجح).
+- الجسر المحلي يعمل دائمًا على جهاز المستخدم؛ لا تحاول تشغيله على خادم Lovable.

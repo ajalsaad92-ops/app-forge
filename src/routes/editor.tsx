@@ -125,7 +125,9 @@ function AppForgeEditor() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [leftTab, setLeftTab] = React.useState<"categories" | "files" | "certs">("categories");
   const [centerTab, setCenterTab] = React.useState<"code" | "visual" | "preview">("code");
-  const [rightTab, setRightTab] = React.useState<"info" | "perms" | "ai">("info");
+  const [rightTab, setRightTab] = React.useState<"info" | "perms" | "ai" | "audit">("info");
+  const [stabilityAudit, setStabilityAudit] = React.useState<string | null>(null);
+  const [isAuditing, setIsAuditing] = React.useState(false);
 
   // Legacy file system for generic project support
   const [files, setFiles] = React.useState<FileSystemItem[]>([
@@ -466,6 +468,28 @@ function AppForgeEditor() {
 
   const discardChanges = () => {
     setPendingCode(null);
+  };
+
+  const handleStabilityAudit = async () => {
+    if (!apkInfo || !aiSettings.apiKey) {
+      toast.error("يرجى رفع APK وإعداد مفتاح AI أولاً");
+      return;
+    }
+    setIsAuditing(true);
+    setRightTab("audit");
+    try {
+      const manifest = apkFiles.find(f => f.path === "AndroidManifest.xml")?.content as string || "";
+      const paths = apkFiles.map(f => f.path);
+      const { checkAppFunctionality } = await import("@/lib/ai-service");
+      const result = await checkAppFunctionality(aiSettings, manifest, paths);
+      setStabilityAudit(result);
+      toast.success("تم فحص استقرار التطبيق");
+    } catch (err: any) {
+      toast.error("فشل الفحص: " + err.message);
+    } finally {
+      setIsAuditing(false);
+    }
+  };
     setViewMode("editor");
     toast.info("تم إلغاء التغييرات");
   };

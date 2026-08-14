@@ -478,7 +478,8 @@ function AppForgeEditor() {
     setChatMessages(prev => [...prev, { role: "ai", content: "جاري التفكير... Thinking..." }]);
 
     try {
-      const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg);
+      // Pass all files for better context
+      const actionResult = await getCodeAction(aiSettings, activeFile.content, userMsg, apkFiles);
       setPendingCode(actionResult.modifiedCode);
       setOriginalCode(activeFile.content);
       setChatMessages(prev => [...prev.slice(0, -1), { role: "ai", content: `${actionResult.explanation}\n\nراجع التغييرات في عرض Diff.` }]);

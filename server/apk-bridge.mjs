@@ -321,6 +321,74 @@ app.post("/api/upload", multer({ dest: INCOMING_DIR, limits: { fileSize: 512 * 1
   }
 });
 
+// ---------------------------------------------------------------------------
+// One-click PowerShell helper (Windows). Verifies the tools, and offers to
+// install whatever is missing via winget. The UI downloads this script and the
+// user runs it in PowerShell — a single click to "check + install".
+// ---------------------------------------------------------------------------
+function powershellScript() {
+  return `# =============================================================
+#  APP-FORGE — Verify & Install Android tools (one click)
+#  Run this in Windows PowerShell (as the current user is enough).
+#  Safe to re-run any time: it only installs what is missing.
+# =============================================================
+$ErrorActionPreference = "Continue"
+
+function Test-Tool($name, $argsList) {
+  try {
+    & $name @argsList *> $null
+    return $LASTEXITCODE -eq 0
+  } catch { return $false }
+}
+
+Write-Host ""
+Write-Host "=== APP-FORGE tool checker ===" -ForegroundColor Cyan
+
+# --- Java (JDK 17+) ---
+$java = Test-Tool "java" @("-version")
+if ($java) { Write-Host "[OK]   Java (JDK)" -ForegroundColor Green }
+else {
+  Write-Host "[MISS] Java (JDK 17+) - installing via winget..." -ForegroundColor Yellow
+  winget install --id EclipseAdoptium.Temurin.17.JDK -e --accept-source-agreements --accept-package-agreements
+}
+
+# --- Apktool ---
+$apk = Test-Tool "apktool" @("--version")
+if ($apk) { Write-Host "[OK]   Apktool" -ForegroundColor Green }
+else {
+  Write-Host "[MISS] Apktool - installing via winget..." -ForegroundColor Yellow
+  winget install --id apktool.apktool -e --accept-source-agreements --accept-package-agreements
+}
+
+# --- apksigner + zipalign (Android build-tools) ---
+$sign = Test-Tool "apksigner" @("--version")
+$zipa = Test-Tool "zipalign" @("-h")
+if ($sign -and $zipa) {
+  Write-Host "[OK]   apksigner + zipalign" -ForegroundColor Green
+} else {
+  Write-Host "[MISS] apksigner / zipalign (Android build-tools)" -ForegroundColor Yellow
+  Write-Host "       Install Android Studio, then run:" -ForegroundColor Yellow
+  Write-Host '       sdkmanager "build-tools;34.0.0" "platform-tools"' -ForegroundColor Gray
+  Write-Host "       or download build-tools from developer.android.com" -ForegroundColor Gray
+}
+
+Write-Host ""
+if ($java -and $apk -and $sign -and $zipa) {
+  Write-Host "=== All tools ready. You can now run: npm run bridge ===" -ForegroundColor Green
+} else {
+  Write-Host "=== Some tools still missing. Re-run this script after installing, or follow the manual links. ===" -ForegroundColor Yellow
+}
+Write-Host ""
+Write-Host "Next step: open a new terminal in the app-forge folder and run:  npm run bridge" -ForegroundColor Cyan
+`;
+}
+
+app.get("/api/install.ps1", (req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="appforge-setup.ps1"');
+  res.send(powershellScript());
+});
+
 app.get("/api/status", (req, res) => {
   res.json({
     projectName: state.projectName,

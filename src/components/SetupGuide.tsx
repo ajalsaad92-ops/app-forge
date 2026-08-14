@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   Zap,
   Play,
-  RotateCcw
+  RotateCcw,
+  Info
 } from "lucide-react";
 import {
   Dialog,

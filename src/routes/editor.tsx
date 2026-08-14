@@ -924,9 +924,9 @@ function AppForgeEditor() {
               بناء APK
             </Button>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/50 border border-slate-700/50">
-              <div className={`h-1.5 w-1.5 rounded-full ${apkFiles.length > 0 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-slate-600'}`} />
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
               <span className="text-[9px] font-bold text-slate-300 uppercase tracking-tighter">
-                {apkFiles.length > 0 ? "Tools Online" : "Tools Offline"}
+                Server Ready (Nix)
               </span>
             </div>
             <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setShowSetup(true)} title="Setup">

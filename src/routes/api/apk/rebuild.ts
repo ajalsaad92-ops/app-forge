@@ -40,8 +40,8 @@ export const Route = createFileRoute('/api/apk/rebuild')({
 
           // 2. Ensure apktool jar exists
           if (!existsSync(APKTOOL_JAR)) {
-            const { execSync: syncExec } = await import('node:child_process');
-            syncExec(`curl -L -o ${APKTOOL_JAR} https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar`);
+            const { spawnSync: spSync } = await import('node:child_process');
+            spSync('curl', ['-L', '-o', APKTOOL_JAR, 'https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar']);
           }
 
           const outApk = path.join(workDir, 'output.apk');

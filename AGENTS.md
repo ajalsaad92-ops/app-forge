@@ -63,9 +63,11 @@ src/routes/index.tsx        → الصفحة الرئيسية (الشرح وال
 src/routes/editor.tsx       → محرر التعديل الكامل (القلب)
 src/routes/__root.tsx       → الهيكل الجذري + الوسوم الوصفية (meta)
 src/lib/ai-service.ts       → طبقة الذكاء الاصطناعي (9 مزوّدات + تحليل شامل)
-src/lib/bridge-client.ts    → عميل الجسر المحلي (typesafe)
+src/lib/bridge-client.ts    → عميل الجسر (typesafe، مدروس بالوضع محلي/سحابي)
 src/lib/apk-processor.ts    → معالجة داخل المتصفح (احتياطي JSZip)
-src/components/SetupGuide.tsx → تثبيت الأدوات + حالة كل أداة
+src/components/SetupGuide.tsx → تثبيت الأدوات + حالة كل أداة + سكربت PowerShell
+src/components/Onboarding.tsx → مرشد أول استخدام (5 خطوات)
+src/components/ConnectionSettings.tsx → إعدادات الاتصال (محلي/سحابي)
 server/apk-bridge.mjs       → الجسر المحلي (فكّ/بناء/توقيع/قوالب)
 server/mods.mjs             → محرك قوالب التعديل الجاهزة
 ```
@@ -77,6 +79,32 @@ server/mods.mjs             → محرك قوالب التعديل الجاهز�
 - ملفات المسارات بنمط file-based routing — أضف ملفًا في `src/routes/` ليظهر كمسار.
 - الذكاء الاصطناعي: المفاتيح تُحفظ في `localStorage` (وليس على خادم). لا ترسلها للخادم.
 - التعديلات على الجسر (server/*.mjs) تحتاج إعادة تشغيل `npm run bridge`.
+
+## مسارا التعديل: محلي + سحابي (أُضيف في هذه المرحلة)
+
+التطبيق يدعم **وضعين** للتعديل، قابلين للتبديل من الشريط العلوي للمحرر ومن الصفحة
+الرئيسية:
+
+1. **محلي (Local)** — الجسر يعمل على جهاز المستخدم (`http://localhost:3000`).
+2. **سحابي (Cloud)** — الاتصال بنفس جسر `server/apk-bridge.mjs` لكن مستضافًا على
+   خادم عام (المكان المحدّد). الرابط يُضبط من **إعدادات الاتصال** (`ConnectionSettings`)
+   ويُحفظ في `localStorage` (`APPFORGE_CLOUD_URL`) مع قيمة افتراضية من `.env`
+   (`VITE_APPFORGE_CLOUD_URL`).
+
+### بنية الوضعين
+- `src/lib/bridge-client.ts` يوفّر `EditMode` ودوال `getBridgeBaseFor(mode)`,
+  `getLocalUrl()`, `getCloudUrl()`, `bridgeHealthInfo(mode)`, `bridgeVerifyTools(mode)`.
+- **كل عمليات الجسر** (رفع/قراءة/كتابة/بناء/قوالب/تحليل) تستخدم `getBridgeBase()`
+  الذي يعكس الوضع الفعّال تلقائيًا، فلا يتغير كودها.
+- `src/components/Onboarding.tsx` — مرشد أول استخدام (5 خطوات) يشرح الإمكانات ويختار الوضع.
+- `src/components/ConnectionSettings.tsx` — ضبط الروابط والوضع مع فحص الاتصال.
+- `src/components/SetupGuide.tsx` — أصبح مدروسًا بالوضع (`baseUrl`/`mode`) ويوفّر
+  **سكربت PowerShell** لفحص/تثبيت الأدوات بنقرة واحدة عبر `GET /api/install.ps1`.
+
+### نشر الجسر السحابي
+الواجهة لا تفكّ/توقّع APK بنفسها. لتشغيل الوضع السحابي انشر `server/apk-bridge.mjs`
+على خادم Node.js عام (Render/Railway/VPS+PM2) مع تثبيت Java 17 + apktool + build-tools
+على ذلك الخادم، ثم أدخل رابط الخادم في إعدادات الاتصال. الجسر يفعّل CORS `*` تلقائيًا.
 
 ## المتطلبات المحلية للتعديل الفعلي (للمستخدم النهائي)
 

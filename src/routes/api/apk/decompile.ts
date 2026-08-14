@@ -33,13 +33,14 @@ export const Route = createFileRoute('/api/apk/decompile')({
           // Ensure apktool jar exists
           if (!fs.existsSync(APKTOOL_JAR)) {
             // Auto-download if missing
-            execSync(`curl -L -o ${APKTOOL_JAR} https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar`);
+            const { execSync: syncExec } = await import('node:child_process');
+            syncExec(`curl -L -o ${APKTOOL_JAR} https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar`);
           }
 
           // Execute decompile
-          const { execSync } = await import('node:child_process');
+          const { execSync: syncExecDecompile } = await import('node:child_process');
           try {
-            execSync(`${JAVA_PATH} -jar ${APKTOOL_JAR} d -f -o ${outputDir} ${apkPath}`, { stdio: 'pipe' });
+            syncExecDecompile(`${JAVA_PATH} -jar ${APKTOOL_JAR} d -f -o ${outputDir} ${apkPath}`, { stdio: 'pipe' });
           } catch (err: any) {
             console.error('Decompile error:', err.stderr?.toString());
             return new Response(`Decompile failed: ${err.stderr?.toString() || err.message}`, { status: 500 });

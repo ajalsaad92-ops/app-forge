@@ -234,10 +234,17 @@ function AppForgeEditor() {
           if (manifestFile && typeof manifestFile.content === "string") {
             const info = await apkProcessor.parseManifest(manifestFile.content);
             setApkInfo(info);
+            
+            // Open manifest by default
+            setActiveFilePath("AndroidManifest.xml");
+            setOpenTabs(["AndroidManifest.xml"]);
+            setCenterTab("visual");
           }
           
           toast.success("تم فك التطبيق (Decompiled) بنجاح!", { id: toastId });
           setIsLoading(false);
+          setLeftTab("categories");
+          setRightTab("info");
           return;
         }
       } catch (e) {

@@ -1003,7 +1003,7 @@ function AppForgeEditor() {
               {isImage && activeFile.rawContent ? (
                 <div className="space-y-4 text-center">
                   <img
-                    src={URL.createObjectURL(new Blob([activeFile.rawContent as Uint8Array]))}
+                    src={URL.createObjectURL(new Blob([(activeFile.rawContent as Uint8Array).buffer as ArrayBuffer]))}
                     alt={activeFile.name}
                     className="max-w-full max-h-[60vh] mx-auto rounded-xl border border-slate-800 shadow-2xl"
                   />

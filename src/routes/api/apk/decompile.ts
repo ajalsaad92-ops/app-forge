@@ -32,8 +32,8 @@ export const Route = createFileRoute('/api/apk/decompile')({
           
           // Ensure apktool jar exists
           if (!fs.existsSync(APKTOOL_JAR)) {
-            // This is a safety fallback if the setup step was missed
-            return new Response('Apktool not initialized on server', { status: 500 });
+            // Auto-download if missing
+            execSync(`curl -L -o ${APKTOOL_JAR} https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar`);
           }
 
           // Execute decompile

@@ -242,7 +242,7 @@ function parseManifestFromStrings(strings: string[]): Partial<APKInfo> {
     );
     if (possiblePackages.length > 0) {
       // Sort by likelihood: shortest that looks like app package
-      info.packageName = possiblePackages.sort((a,b) => a.length - b.length)[0];
+      info.packageName = possiblePackages.sort((a,b) => a.length - b.length)[0] || "";
     }
   }
 
@@ -256,14 +256,14 @@ function parseManifestFromStrings(strings: string[]): Partial<APKInfo> {
   // Extract SDK
   const sdkStrings = strings.filter(s => /^\d+$/.test(s) && parseInt(s) >= 14 && parseInt(s) <= 35);
   if (sdkStrings.length >= 1) {
-    info.minSdk = sdkStrings[0];
-    if (sdkStrings.length >= 2) info.targetSdk = sdkStrings[1];
+    info.minSdk = sdkStrings[0] || null;
+    if (sdkStrings.length >= 2) info.targetSdk = sdkStrings[1] || null;
   }
 
   // Extract version
   const versionStrings = strings.filter(s => /^\d+\.\d+/.test(s) || /^v?\d+\.\d+\.\d+/.test(s));
   if (versionStrings.length > 0) {
-    info.versionName = versionStrings[0];
+    info.versionName = versionStrings[0] || "";
   }
 
   return info;
@@ -278,9 +278,9 @@ function parseXmlManifest(content: string): Partial<APKInfo> {
     if (!manifest || manifest.tagName === 'parsererror') return {};
 
     const info: Partial<APKInfo> = {
-      packageName: manifest.getAttribute('package') || undefined,
-      versionName: manifest.getAttribute('android:versionName') || manifest.getAttribute('versionName') || undefined,
-      versionCode: manifest.getAttribute('android:versionCode') || manifest.getAttribute('versionCode') || undefined,
+      packageName: manifest.getAttribute('package') || "",
+      versionName: manifest.getAttribute('android:versionName') || manifest.getAttribute('versionName') || "",
+      versionCode: manifest.getAttribute('android:versionCode') || manifest.getAttribute('versionCode') || "",
       permissions: [],
       activities: [],
       services: [],
@@ -299,16 +299,16 @@ function parseXmlManifest(content: string): Partial<APKInfo> {
     if (app) {
       info.debuggable = getAttr(app, 'debuggable') === 'true';
       info.allowBackup = getAttr(app, 'allowBackup') !== 'false';
-      info.appName = getAttr(app, 'label') || info.packageName;
-      info.icon = getAttr(app, 'icon') || undefined;
+      info.appName = getAttr(app, 'label') || info.packageName || null;
+      info.icon = getAttr(app, 'icon') || null;
     }
 
     // SDK
     const usesSdk = doc.querySelector('uses-sdk');
     if (usesSdk) {
-      info.minSdk = getAttr(usesSdk, 'minSdkVersion');
-      info.targetSdk = getAttr(usesSdk, 'targetSdkVersion');
-      info.compileSdk = getAttr(usesSdk, 'compileSdkVersion');
+      info.minSdk = getAttr(usesSdk, 'minSdkVersion') || null;
+      info.targetSdk = getAttr(usesSdk, 'targetSdkVersion') || null;
+      info.compileSdk = getAttr(usesSdk, 'compileSdkVersion') || null;
     }
 
     // Permissions
@@ -335,9 +335,9 @@ function parseXmlManifest(content: string): Partial<APKInfo> {
         if (name) {
           list.push({
             name: name.startsWith('.') ? (info.packageName || '') + name : name,
-            exported: getAttr(el, 'exported') === 'true' ? true : getAttr(el, 'exported') === 'false' ? false : undefined,
+            exported: getAttr(el, 'exported') === 'true' ? true : getAttr(el, 'exported') === 'false' ? false : null,
             enabled: getAttr(el, 'enabled') !== 'false',
-            permission: getAttr(el, 'permission'),
+            permission: getAttr(el, 'permission') || null,
           });
         }
       });

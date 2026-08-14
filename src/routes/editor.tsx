@@ -348,7 +348,7 @@ function AppForgeEditor() {
         try {
           const zipBlob = await apkProcessor.rebuildAPK();
           const formData = new FormData();
-          formData.append('project', zipBlob, 'project.zip');
+          formData.append('project', new Blob([zipBlob]), 'project.zip');
           
           const buildRes = await fetch('http://localhost:3000/api/build', {
             method: 'POST',

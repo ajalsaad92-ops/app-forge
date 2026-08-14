@@ -77,14 +77,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "APP-FORGE - محرر APK الاحترافي | Professional APK Editor" },
+      { name: "description", content: "محرر تطبيقات الأندرويد الاحترافي - يفرز التطبيق حسب الشهادات والإعدادات والموارد والشيفرة. Professional APK editor with automatic categorization, visual manifest editor, certificate viewer, and AI assistant. 100% local processing." },
+      { name: "author", content: "APP-FORGE" },
+      { property: "og:title", content: "APP-FORGE - محرر APK الاحترافي | Professional APK Editor" },
+      { property: "og:description", content: "محرر تطبيقات الأندرويد - فرز تلقائي حسب الشهادات والإعدادات والموارد." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:site", content: "@AppForge" },
     ],
     links: [
       {

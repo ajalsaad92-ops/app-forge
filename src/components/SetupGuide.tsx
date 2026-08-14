@@ -50,30 +50,16 @@ const SetupStep = ({ title, description, command, link, isCompleted, onToggle }:
 
   const handleVerify = async () => {
     setIsVerifying(true);
-    // Ping local backend to verify tool existence
     try {
-      let toolName = title.toLowerCase();
-      if (title.includes(':')) {
-        const splitTitle = title.split(':');
-        const candidate = splitTitle[1];
-        if (candidate) {
-          const candidateParts = candidate.trim().split(' ');
-          const firstPart = candidateParts[0];
-          if (firstPart) {
-            toolName = firstPart.toLowerCase();
-          }
-
-        }
-      }
-
-
-
-
-
-
+      let toolName = "";
+      const lowerTitle = title.toLowerCase();
+      
+      if (lowerTitle.includes("java")) toolName = "java";
+      else if (lowerTitle.includes("apktool")) toolName = "apktool";
+      else if (lowerTitle.includes("build tools") || lowerTitle.includes("apksigner")) toolName = "buildtools";
+      else toolName = title.split(":")[0].trim().toLowerCase();
 
       const response = await fetch(`http://localhost:3000/api/verify-tool?tool=${toolName}`);
-
       const data = await response.json();
       
       if (data.exists) {
